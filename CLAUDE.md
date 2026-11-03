@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-The repository is **pre-implementation**: it contains only `spec.md` (the project specification). There is no source code, build system, test suite, or git history yet, so there are no build/lint/test commands to document. When scaffolding begins, add the real commands here (Docker Compose up/down, running Django tests, single-test invocation, etc.) rather than guessing. Treat `spec.md` as the source of truth for scope and acceptance criteria (section 11).
+Phase 1 is implemented (Django app, Postgres, Redis, Celery worker/beat in `docker-compose.yml`); there is no telemetry yet. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (they may be absent on a fresh clone); they define scope, design decisions, and acceptance criteria.
+
+## Commands
+
+All via the Makefile: `make up` (build + start, waits on healthchecks), `make down`, `make logs`, `make demo-user`, `make test`, `make load`. Requires a `.env` copied from `.env.example` (`POSTGRES_PASSWORD` is mandatory).
+Single test: `docker compose exec -T django pytest -q tests/test_api.py::test_asset_crud_and_cache`.
+Model changes: generate migrations with the source mounted so the file lands on the host: `docker compose run --rm --no-deps -v "$PWD/app:/app" django python manage.py makemigrations portal`.
+Gotchas: `redis`/`kombu`/`celery` pins in `app/requirements.txt` are interdependent; the django service must be in `DJANGO_ALLOWED_HOSTS` because the app calls its own `/stub/rates/` as the simulated external API.
 
 ## What is being built
 

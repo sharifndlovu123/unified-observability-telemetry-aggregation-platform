@@ -10,16 +10,22 @@ A hands-on learning project: one instrumented Django app, one OpenTelemetry Coll
 - [`CLAUDE.md`](CLAUDE.md) – guidance for Claude Code
 
 ## Status
-Pre-implementation. Build order follows the phases in `TECHNICAL_SPEC.md` §12.
+Phase 1 done: Django app + Postgres + Redis + Celery worker/beat under Docker Compose (no telemetry yet).
+Next: Phase 2 (OpenTelemetry instrumentation). Phases are described in `TECHNICAL_SPEC.md` §12.
 
 ## Layout
 - `app/` – Django demo application (no backend-specific code)
-- `observability/` – Collector, Prometheus, Grafana, Elastic, Datadog config
-- `scenarios/` – reproducible failure/observability demos
+- `observability/` – Collector, Prometheus, Grafana, Elastic, Datadog config (empty so far)
+- `scenarios/` – load generator and (later) reproducible failure demos
 - `docs/` – architecture, deployment, troubleshooting, limitations
 
 ## Getting started
 ```
-cp .env.example .env   # then edit secrets
+cp .env.example .env    # set POSTGRES_PASSWORD and other secrets
+make up                 # build and start everything, waits for healthchecks
+make demo-user          # user "demo" / "demo-pass"
+make test               # pytest inside the django container
+make load               # 60s of mixed API traffic
 ```
-Compose stack is not built yet.
+API on http://127.0.0.1:8000 (`/healthz`, `/readyz`, `/api/assets/`, `/api/workorders/`, `/api/reports/`, `/api/external/rates/`).
+Celery Beat emits baseline activity (heartbeat, synthetic load, stale sweep) even with no traffic.
