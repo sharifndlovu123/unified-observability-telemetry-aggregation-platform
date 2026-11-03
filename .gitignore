@@ -1,0 +1,32 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated at runtime
+observability/otel-collector/pipelines.yaml
+observability/otel-collector/.config-args
+
+# Docker / data volumes
+data/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+staticfiles/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local planning docs (not tracked)
+spec.md
+TECHNICAL_SPEC.md
