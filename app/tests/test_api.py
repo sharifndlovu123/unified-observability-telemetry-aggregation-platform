@@ -57,3 +57,12 @@ def test_report_enqueues_task(client, monkeypatch):
 
 def test_healthz(db):
     assert APIClient().get("/healthz").status_code == 200
+
+
+def test_login_is_throttled(db, settings):
+    from portal.views import LoginThrottle
+
+    LoginThrottle.THROTTLE_RATES = {"login": "3/min"}
+    c = APIClient()
+    codes = [c.post("/api/auth/login", {"username": "x", "password": "y"}).status_code for _ in range(5)]
+    assert codes[:3] == [401, 401, 401] and 429 in codes[3:]

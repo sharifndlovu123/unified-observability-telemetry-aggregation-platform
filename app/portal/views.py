@@ -9,9 +9,10 @@ from django.core.cache import cache
 from django.db import connection, transaction
 from django.http import JsonResponse
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 
 from .models import Asset, Report, WorkOrder
 from .serializers import AssetSerializer, ReportSerializer, WorkOrderSerializer
@@ -19,6 +20,13 @@ from .tasks import generate_report
 
 logger = logging.getLogger(__name__)
 ASSET_CACHE_TTL = 60
+
+
+class LoginThrottle(AnonRateThrottle):
+    """Per-IP limit on login attempts (rate set via LOGIN_THROTTLE_RATE)."""
+
+    scope = "login"
+
 
 
 def healthz(request):
@@ -50,6 +58,7 @@ def stub_rates(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([LoginThrottle])
 def login_view(request):
     user = authenticate(
         request,
@@ -57,8 +66,8 @@ def login_view(request):
         password=request.data.get("password"),
     )
     if user is None:
-        # Never log the submitted credentials.
-        logger.warning("login failed", extra={"username": request.data.get("username")})
+        # Never log submitted credentials or the attempted username.
+        logger.warning("login failed")
         return Response({"detail": "invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
     login(request, user)
     logger.info("login ok", extra={"user_id": user.pk})
