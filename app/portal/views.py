@@ -36,28 +36,25 @@ class LoginIPThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-class LoginFailureThrottle(SimpleRateThrottle):
-    """Caps FAILED attempts per (username, IP). Successful logins never use the budget,
-    and keying on IP as well means an attacker can only lock themselves out, not the
-    real user logging in from elsewhere."""
+def _reserve(key, limit, window):
+    """Atomically take one attempt from a bucket; False when over the limit.
 
-    scope = "login_user"
+    incr is atomic in Redis, so concurrent requests cannot all slip under the limit
+    (a read-then-write check would allow that).
+    """
+    cache.add(key, 0, window)  # no-op if it exists; sets the TTL only on creation
+    try:
+        return cache.incr(key) <= limit
+    except ValueError:  # key expired between add and incr
+        cache.set(key, 1, window)
+        return True
 
-    def get_cache_key(self, request, view):
-        name = str(request.data.get("username", "")).strip().lower()
-        ident = hashlib.sha256(f"{name}|{self.get_ident(request)}".encode()).hexdigest()
-        return self.cache_format % {"scope": self.scope, "ident": ident}
 
-    def allow_request(self, request, view):
-        # Check only; the hit is recorded by record_failure() after a bad password.
-        self.key = self.get_cache_key(request, view)
-        self.now = self.timer()
-        self.history = [t for t in self.cache.get(self.key, []) if t > self.now - self.duration]
-        return len(self.history) < self.num_requests
-
-    def record_failure(self):
-        self.history.insert(0, self.now)
-        self.cache.set(self.key, self.history, self.duration)
+def _refund(key):
+    try:
+        cache.decr(key)
+    except ValueError:
+        pass
 
 
 def healthz(request):
@@ -93,8 +90,19 @@ def stub_rates(request):
 @permission_classes([AllowAny])
 @throttle_classes([LoginIPThrottle])
 def login_view(request):
-    failures = LoginFailureThrottle()
-    if not failures.allow_request(request, None):
+    # Two failure budgets, both reserved BEFORE checking the password and refunded on
+    # success, so only failures count:
+    #  * per (username, IP): strict. An attacker can only lock out their own IP.
+    #  * per username, any IP: looser. Stops guessing from many rotating IPs; the
+    #    trade-off is a determined attacker can still lock the account for the window.
+    name = str(request.data.get("username", "")).strip().lower()
+    name_hash = hashlib.sha256(name.encode()).hexdigest()
+    ip = LoginIPThrottle().get_ident(request)
+    ip_key = "loginfail:ip:" + hashlib.sha256(f"{name}|{ip}".encode()).hexdigest()
+    user_key = "loginfail:user:" + name_hash
+    ok_ip = _reserve(ip_key, settings.LOGIN_FAIL_LIMIT_PER_IP, settings.LOGIN_FAIL_WINDOW)
+    ok_user = _reserve(user_key, settings.LOGIN_FAIL_LIMIT_PER_USER, settings.LOGIN_FAIL_WINDOW_USER)
+    if not (ok_ip and ok_user):
         return Response({"detail": "too many failed attempts"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     user = authenticate(
         request,
@@ -103,9 +111,10 @@ def login_view(request):
     )
     if user is None:
         # Never log submitted credentials or the attempted username.
-        failures.record_failure()
         logger.warning("login failed")
         return Response({"detail": "invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+    _refund(ip_key)
+    _refund(user_key)
     login(request, user)
     logger.info("login ok", extra={"user_id": user.pk})
     return Response({"detail": "ok"})

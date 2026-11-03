@@ -109,10 +109,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 50,
     # Django is reached directly (no trusted proxy), so never trust X-Forwarded-For.
     "NUM_PROXIES": 0,
-    "DEFAULT_THROTTLE_RATES": {
-        "login_ip": env("LOGIN_IP_THROTTLE_RATE", "20/min"),
-        "login_user": env("LOGIN_USER_THROTTLE_RATE", "5/min"),
-    },
+    "DEFAULT_THROTTLE_RATES": {"login_ip": env("LOGIN_IP_THROTTLE_RATE", "20/min")},
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -131,3 +128,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_WORKER_REDIRECT_STDOUTS = False
 LOGGING_CONFIG = None
+
+# Failed-login budgets (see portal.views.login_view): strict per (username, IP), looser per username.
+LOGIN_FAIL_LIMIT_PER_IP = int(env("LOGIN_FAIL_LIMIT_PER_IP", "5"))
+LOGIN_FAIL_WINDOW = int(env("LOGIN_FAIL_WINDOW", "60"))
+LOGIN_FAIL_LIMIT_PER_USER = int(env("LOGIN_FAIL_LIMIT_PER_USER", "30"))
+LOGIN_FAIL_WINDOW_USER = int(env("LOGIN_FAIL_WINDOW_USER", "900"))

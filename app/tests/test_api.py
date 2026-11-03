@@ -59,37 +59,41 @@ def test_healthz(db):
     assert APIClient().get("/healthz").status_code == 200
 
 
-def test_only_failed_logins_consume_user_budget(db):
-    from portal.views import LoginFailureThrottle, LoginIPThrottle
+def _login(c, user, pw, ip=None):
+    kw = {"REMOTE_ADDR": ip} if ip else {}
+    return c.post("/api/auth/login", {"username": user, "password": pw}, **kw).status_code
 
-    LoginIPThrottle.THROTTLE_RATES = {"login_ip": "100/min"}
-    LoginFailureThrottle.THROTTLE_RATES = {"login_user": "3/min"}
+
+def test_only_failed_logins_consume_budget(db, settings):
+    settings.LOGIN_FAIL_LIMIT_PER_IP = 3
     User.objects.create_user("bob", password="pw")
     c = APIClient()
-    ok = [c.post("/api/auth/login", {"username": "bob", "password": "pw"}).status_code for _ in range(5)]
-    assert ok == [200] * 5  # successes (even while authenticated) never lock the account
-    bad = [c.post("/api/auth/login", {"username": "bob", "password": "no"}).status_code for _ in range(5)]
-    assert bad == [401, 401, 401, 429, 429]
+    assert [_login(c, "bob", "pw") for _ in range(6)] == [200] * 6  # successes are refunded
+    assert [_login(c, "bob", "no") for _ in range(5)] == [401, 401, 401, 429, 429]
 
 
-def test_failure_lockout_is_per_ip_not_global(db):
-    from portal.views import LoginFailureThrottle, LoginIPThrottle
-
-    LoginIPThrottle.THROTTLE_RATES = {"login_ip": "100/min"}
-    LoginFailureThrottle.THROTTLE_RATES = {"login_user": "2/min"}
+def test_ip_lockout_does_not_lock_out_the_real_user(db, settings):
+    settings.LOGIN_FAIL_LIMIT_PER_IP = 2
     User.objects.create_user("carol", password="pw")
-    attacker, victim = APIClient(REMOTE_ADDR="6.6.6.6"), APIClient(REMOTE_ADDR="7.7.7.7")
+    c = APIClient()
     for _ in range(3):
-        attacker.post("/api/auth/login", {"username": "carol", "password": "no"})
-    assert attacker.post("/api/auth/login", {"username": "carol", "password": "no"}).status_code == 429
-    assert victim.post("/api/auth/login", {"username": "carol", "password": "pw"}).status_code == 200
+        _login(c, "carol", "no", "6.6.6.6")
+    assert _login(c, "carol", "no", "6.6.6.6") == 429
+    assert _login(c, "carol", "pw", "7.7.7.7") == 200
+
+
+def test_rotating_ips_cannot_evade_account_limit(db, settings):
+    settings.LOGIN_FAIL_LIMIT_PER_USER = 3
+    User.objects.create_user("dave", password="pw")
+    c = APIClient()
+    codes = [_login(c, "dave", "no", f"9.9.9.{i}") for i in range(5)]
+    assert codes == [401, 401, 401, 429, 429]
 
 
 def test_forwarded_header_does_not_evade_ip_throttle(db):
-    from portal.views import LoginFailureThrottle, LoginIPThrottle
+    from portal.views import LoginIPThrottle
 
     LoginIPThrottle.THROTTLE_RATES = {"login_ip": "3/min"}
-    LoginFailureThrottle.THROTTLE_RATES = {"login_user": "100/min"}
     c = APIClient()
     codes = [
         c.post("/api/auth/login", {"username": f"u{i}", "password": "y"}, HTTP_X_FORWARDED_FOR=f"1.2.3.{i}").status_code
