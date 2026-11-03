@@ -1,4 +1,4 @@
-.PHONY: scenario scenarios collector-reload routes up down logs test demo-user load
+.PHONY: init verify scenario scenarios collector-reload routes up down logs test demo-user load
 up:
 	docker compose up -d --build --wait
 down:
@@ -19,3 +19,7 @@ scenario:  ## run one operational scenario: make scenario N=1
 	python3 scenarios/run.py $(N)
 scenarios:  ## run all six scenarios (about 25 minutes)
 	python3 scenarios/run.py all
+init:  ## create .env with random secrets (first run only)
+	python3 scripts/init_env.py
+verify:  ## check the spec's acceptance criteria against the running stack
+	python3 scenarios/verify.py

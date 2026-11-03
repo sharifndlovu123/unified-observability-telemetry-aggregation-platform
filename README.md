@@ -139,6 +139,7 @@ Every log line and span carries the same `trace.id`. In Kibana, open the **Porta
 | Prometheus | ✅ scraping the Collector; 6 alert rules (`observability/prometheus/rules`) at http://127.0.0.1:9090 |
 | Grafana | ✅ http://127.0.0.1:3000 (user `admin`, password = `GF_SECURITY_ADMIN_PASSWORD` in `.env`). Prometheus data source, 3 dashboards, 2 alert rules, all provisioned from `observability/grafana/` |
 | ELK | ✅ Elasticsearch (logs + traces, 7-day retention), Logstash (second log path), Kibana at http://127.0.0.1:5601 (user `elastic`, password = `ELASTIC_PASSWORD` in `.env`). Grafana reads logs from Elasticsearch |
+| Docs | ✅ architecture, deployment, troubleshooting, limitations, signal compatibility |
 | Scenarios | ✅ six scripted, self-checking operational scenarios with demo fault injection ([`scenarios/`](scenarios/README.md)) |
 | Datadog | ⏸ postponed (optional; needs an external account and API key). Adding it later is one `exporters.datadog.yaml`, one `DESTINATIONS` row and an `EXPORT_DATADOG` flag, with no app change |
 
@@ -165,15 +166,20 @@ Details and "where to look in the UI" for each are in [`scenarios/README.md`](sc
 
 ## Getting started
 ```
-cp .env.example .env    # set POSTGRES_PASSWORD, DJANGO_SECRET_KEY and other secrets
-make up                 # build and start everything, waits for healthchecks
-make demo-user          # user "demo" / "demo-pass"
-make test               # pytest inside the django container
-make load               # 60s of mixed API traffic (generates telemetry)
+make init         # writes .env with random secrets (first run only)
+make up           # build and start everything, waits for healthchecks (first run pulls ~4 GB of images)
+make demo-user    # users: demo (load) and ops-admin (staff, fault control)
+make verify       # checks the spec's acceptance criteria against the running stack (~1.5 min)
+make test         # pytest inside the django container
+make load         # 60 s of mixed API traffic (generates telemetry)
 ```
-API on http://127.0.0.1:8000 (`/healthz`, `/readyz`, `/api/assets/`, `/api/workorders/`, `/api/reports/`, `/api/external/rates/`).
-Celery Beat emits baseline activity (heartbeat, synthetic load, stale sweep, one log record per severity) even with no traffic.
+Needs Docker with Compose v2 and about 8 GB of free RAM. API on http://127.0.0.1:8000 (`/healthz`, `/readyz`, `/api/assets/`, `/api/workorders/`, `/api/reports/`, `/api/external/rates/`). Celery Beat emits baseline activity (heartbeat, synthetic load, stale sweep, one log record per severity) even with no traffic. Full instructions, URLs and logins: [`docs/deployment.md`](docs/deployment.md).
 
 ## Docs
-- [`CLAUDE.md`](CLAUDE.md) – guidance for Claude Code
-- Local planning docs (`spec.md`, `TECHNICAL_SPEC.md`) are git-ignored.
+- [`docs/architecture.md`](docs/architecture.md): components, networks, how one request flows, design decisions
+- [`docs/deployment.md`](docs/deployment.md): requirements, first run, URLs and logins, configuration, adding a destination
+- [`docs/troubleshooting.md`](docs/troubleshooting.md): symptoms and causes (mostly real problems met while building this)
+- [`docs/signal-compat.md`](docs/signal-compat.md): how each signal changes shape per backend, and measured delivery guarantees
+- [`docs/limitations.md`](docs/limitations.md): demo vs production
+- [`scenarios/README.md`](scenarios/README.md): the six operational scenarios
+- [`CLAUDE.md`](CLAUDE.md): guidance for Claude Code. Local planning docs (`spec.md`, `TECHNICAL_SPEC.md`) are git-ignored.
