@@ -8,4 +8,33 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     jsonData: { timeInterval: 15s }
-  # Elasticsearch (logs/traces) is added in the ELK phase.
+  # Read-only Elasticsearch user (portal_reader role) created by observability/elasticsearch/setup.py.
+  - name: Elasticsearch (logs)
+    uid: elasticsearch-logs
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_reader
+    secureJsonData: { basicAuthPassword: $ES_READER_PASSWORD }
+    jsonData:
+      index: "logs-portal-*"
+      timeField: "@timestamp"
+      logMessageField: message
+      logLevelField: log.level
+      # Turns each log line's trace.id into a link to every log line and span of that request.
+      dataLinks:
+        - field: trace.id
+          url: 'http://127.0.0.1:5601/app/discover#/?_a=(dataSource:(dataViewId:portal-correlation,type:dataView),query:(language:kuery,query:%27trace.id%20:%20%22${__value.raw}%22%27))'
+          urlDisplayLabel: Follow trace in Kibana
+  - name: Elasticsearch (traces)
+    uid: elasticsearch-traces
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_reader
+    secureJsonData: { basicAuthPassword: $ES_READER_PASSWORD }
+    jsonData:
+      index: "traces-portal-*"
+      timeField: "@timestamp"

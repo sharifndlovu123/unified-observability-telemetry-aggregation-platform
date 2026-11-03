@@ -1,0 +1,8 @@
+# Logs -> Logstash. Logstash has no native OTLP input, so we send OTLP as JSON over HTTP
+# to its http input; the pipeline in observability/logstash flattens it for Elasticsearch.
+exporters:
+  otlphttp/logstash:
+    logs_endpoint: http://logstash:8080/v1/logs
+    encoding: json
+    retry_on_failure: { enabled: true, initial_interval: 1s, max_interval: 30s, max_elapsed_time: 300s }
+    sending_queue: { enabled: true, queue_size: 1000 }

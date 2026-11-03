@@ -94,7 +94,7 @@
       "id": 3,
       "type": "stat",
       "title": "Error rate (5xx)",
-      "description": "Share of requests answered with 5xx. Alert fires above 5%.",
+      "description": "Share of requests answered with 5xx. Alert fires above 5%. Link: matching error logs in Kibana.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -142,13 +142,20 @@
       },
       "options": {
         "colorMode": "background"
-      }
+      },
+      "links": [
+        {
+          "title": "Error logs in Kibana",
+          "url": "http://127.0.0.1:5601/app/discover#/view/portal-s-errors",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "id": 4,
       "type": "stat",
       "title": "p95 latency",
-      "description": "95th percentile server latency. Alert fires above 1s.",
+      "description": "95th percentile server latency. Alert fires above 1s. Link: slowest spans in Kibana.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -196,7 +203,14 @@
       },
       "options": {
         "colorMode": "background"
-      }
+      },
+      "links": [
+        {
+          "title": "Slowest spans in Kibana",
+          "url": "http://127.0.0.1:5601/app/discover#/view/portal-s-slow-spans",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "id": 5,
@@ -410,7 +424,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "p95 latency by route",
-      "description": "Find the slow endpoint (Scenario 1).",
+      "description": "Find the slow endpoint (Scenario 1). Link: slowest spans in Kibana.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -447,7 +461,14 @@
         "tooltip": {
           "mode": "multi"
         }
-      }
+      },
+      "links": [
+        {
+          "title": "Slowest spans in Kibana",
+          "url": "http://127.0.0.1:5601/app/discover#/view/portal-s-slow-spans",
+          "targetBlank": true
+        }
+      ]
     },
     {
       "id": 12,
@@ -592,9 +613,145 @@
           "mode": "multi"
         }
       }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Logs (Elasticsearch)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Log volume by level",
+      "description": "Log records per level (direct Collector -> Elasticsearch path).",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "elasticsearch-logs"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "elasticsearch-logs"
+          },
+          "query": "",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "log.level",
+              "settings": {
+                "size": "10",
+                "order": "desc",
+                "orderBy": "_count"
+              }
+            },
+            {
+              "id": "3",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "auto"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "logs",
+      "title": "Recent warnings and errors",
+      "description": "Click a line, then its trace.id link to follow the whole request in Kibana.",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "elasticsearch-logs"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "elasticsearch-logs"
+          },
+          "query": "log.level:(WARN OR ERROR OR CRITICAL)",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "logs",
+              "settings": {
+                "limit": "50"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
     }
   ],
-  "links": [],
+  "links": [
+    {
+      "title": "Kibana: logs and traces overview",
+      "type": "link",
+      "icon": "doc",
+      "url": "http://127.0.0.1:5601/app/dashboards#/view/portal-logs-overview",
+      "targetBlank": true
+    }
+  ],
   "annotations": {
     "list": []
   }

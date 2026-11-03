@@ -63,7 +63,9 @@ make routes               # shows where each signal now goes
 |---|---|---|
 | `EXPORT_DEBUG` | all signals (printed in the Collector log) | on |
 | `EXPORT_PROMETHEUS` | metrics (scrape endpoint `:8889`) | on |
-| `EXPORT_ELASTICSEARCH` / `EXPORT_DATADOG` | logs, traces / all | later phases |
+| `EXPORT_ELASTICSEARCH` | logs + traces, with retry and an on-disk queue | on |
+| `EXPORT_LOGSTASH` | logs via Logstash into their own stream | on |
+| `EXPORT_DATADOG` | all signals | later phase |
 
 A signal with every destination off still gets a valid (no-op) pipeline. To add a destination: add `exporters.<name>.yaml`, one row in `render_config.py`, one flag in `docker-compose.yml`.
 
@@ -82,9 +84,14 @@ Grafana stores nothing: it queries Prometheus and Elasticsearch. Kibana is Elast
 ### Dashboards (Grafana → "Observability Platform" folder)
 - **Application Performance**: request rate, 5xx rate, p50/p95/p99 latency, slowest routes, DB query time, cache hit ratio, external API calls.
 - **Background Processing**: Celery queue depth, success ratio, failures, duration by task.
+- **Application Performance** also has a Logs row (log volume by level, recent warnings/errors) and links to the matching Kibana searches.
 - **Infrastructure Health**: host CPU/memory/load/network (Collector `hostmetrics`; this is the Docker *host*, not per-container usage) plus the telemetry pipeline's own health: what the Collector receives, what each exporter sends, export failures.
 
 Dashboards are files (`observability/grafana/dashboards/*.json`) and read-only in the UI; change the JSON, not the screen.
+
+### Following one request across logs and traces
+
+Every log line and span carries the same `trace.id`. In Kibana, open the **Portal: logs and traces overview** dashboard, copy a `trace.id` from an error, and paste it into the **Portal: follow a trace** saved search: you get that request's log lines and spans together, in time order. Grafana log lines have a "Follow trace in Kibana" link on `trace.id`. Field-name and severity differences between signals are listed in [`docs/signal-compat.md`](docs/signal-compat.md).
 
 ### Where this build is today
 
@@ -95,16 +102,17 @@ Dashboards are files (`observability/grafana/dashboards/*.json`) and read-only i
 | Collector | ✅ flag-driven routing, self-metrics, health endpoint |
 | Prometheus | ✅ scraping the Collector; 6 alert rules (`observability/prometheus/rules`) at http://127.0.0.1:9090 |
 | Grafana | ✅ http://127.0.0.1:3000 (user `admin`, password = `GF_SECURITY_ADMIN_PASSWORD` in `.env`). Prometheus data source, 3 dashboards, 2 alert rules, all provisioned from `observability/grafana/` |
-| ELK / Datadog | ⏳ later phases (logs and traces currently go to the debug exporter only; Grafana's log/trace drill-down arrives with Elasticsearch) |
+| ELK | ✅ Elasticsearch (logs + traces, 7-day retention), Logstash (second log path), Kibana at http://127.0.0.1:5601 (user `elastic`, password = `ELASTIC_PASSWORD` in `.env`). Grafana reads logs from Elasticsearch |
+| Datadog | ⏳ next phase |
 
 See what the Collector receives: `docker compose logs -f otel-collector`.
 Full span detail: `DEBUG_EXPORTER_VERBOSITY=detailed docker compose up -d otel-collector`.
 
 ## Repository layout
 - `app/` – Django demo application (no backend-specific code)
-- `observability/` – Collector, Prometheus and Grafana config (Elastic, Datadog to come)
+- `observability/` – Collector, Prometheus, Grafana, Elasticsearch/Logstash/Kibana config (Datadog to come)
 - `scenarios/` – load generator and (later) reproducible failure demos
-- `docs/` – architecture, deployment, troubleshooting, limitations
+- `docs/` – signal compatibility notes (more to come)
 
 ## Getting started
 ```

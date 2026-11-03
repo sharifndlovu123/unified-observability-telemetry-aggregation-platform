@@ -55,9 +55,12 @@ services:
       # Set a flag to false in .env to stop sending to that destination.
       EXPORT_DEBUG: ${EXPORT_DEBUG:-true}
       EXPORT_PROMETHEUS: ${EXPORT_PROMETHEUS:-true}
+      EXPORT_ELASTICSEARCH: ${EXPORT_ELASTICSEARCH:-true}
+      EXPORT_LOGSTASH: ${EXPORT_LOGSTASH:-true}
     volumes:
       - ./observability/otel-collector:/src:ro
       - otelcol-generated:/generated
+      - otelcol-queue:/queue     # chowned for the Collector's non-root user
     restart: "no"
 
   otel-collector:
@@ -69,14 +72,101 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-dev}
       DEBUG_EXPORTER_VERBOSITY: ${DEBUG_EXPORTER_VERBOSITY:-basic}
+      ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD:-}
     volumes:
       - ./observability/otel-collector:/etc/otelcol:ro
       - otelcol-generated:/generated:ro
+      - otelcol-queue:/queue
     depends_on:
       otel-config: { condition: service_completed_successfully }
     # No Compose healthcheck: the contrib image is distroless (no shell/curl). Liveness is
     # exposed on :13133 (health_check) and watched by Prometheus via the :8888 `up` metric.
     networks: [telemetry-net, backend-net]
+
+  # ---- Elastic stack -------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node          # demo only: no HA
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?set ELASTIC_PASSWORD in .env}
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    volumes: [esdata:/usr/share/elasticsearch/data]
+    ports: ["127.0.0.1:9200:9200"]
+    ulimits: { memlock: { soft: -1, hard: -1 } }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -u elastic:$$ELASTIC_PASSWORD 'localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    networks: [backend-net]
+
+  # One-shot: users, retention policy, index templates (see observability/elasticsearch/setup.py).
+  es-setup:
+    image: python:3.12-slim
+    command: python /src/setup.py
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:?set KIBANA_SYSTEM_PASSWORD in .env}
+      ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD:?set ES_WRITER_PASSWORD in .env}
+      ES_READER_PASSWORD: ${ES_READER_PASSWORD:?set ES_READER_PASSWORD in .env}
+    volumes: [./observability/elasticsearch:/src:ro]
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+    restart: "no"
+    networks: [backend-net]
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.3
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
+      ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD}
+    volumes:
+      - ./observability/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./observability/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      es-setup: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:9600 >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks: [telemetry-net, backend-net]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:?set KIBANA_ENCRYPTION_KEY in .env}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+      TELEMETRY_OPTIN: "false"
+    ports: ["127.0.0.1:5601:5601"]
+    depends_on:
+      es-setup: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:5601/api/status | grep -q '\"level\":\"available\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks: [backend-net]
+
+  # One-shot: data views, saved searches and a dashboard (see observability/kibana/setup.py).
+  kibana-setup:
+    image: python:3.12-slim
+    command: python /src/setup.py
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+    volumes: [./observability/kibana:/src:ro]
+    depends_on:
+      kibana: { condition: service_healthy }
+    restart: "no"
+    networks: [backend-net]
 
   grafana:
     image: grafana/grafana:11.3.0
@@ -85,6 +175,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
+      ES_READER_PASSWORD: ${ES_READER_PASSWORD:-}   # read by the datasource provisioning file
     volumes:
       # Everything is provisioned from files: datasources, dashboards, alert rules.
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -177,4 +268,6 @@ volumes:
   beatdata:
   promdata:
   otelcol-generated:
+  otelcol-queue:
+  esdata:
   grafanadata:

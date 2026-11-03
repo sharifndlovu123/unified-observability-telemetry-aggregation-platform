@@ -1,0 +1,19 @@
+# Logs and traces -> Elasticsearch data streams (logs-portal-default, traces-portal-default).
+# `ecs` mapping gives Kibana-friendly fields: @timestamp, log.level, message, trace.id,
+# span.id, service.name. The sending queue is persisted to disk (file_storage) so queued
+# telemetry survives a Collector restart; retries back off (1s..30s, up to 10 attempts per batch).
+extensions:
+  file_storage:
+    directory: /queue
+    timeout: 5s
+
+exporters:
+  elasticsearch:
+    endpoints: [http://elasticsearch:9200]
+    user: portal_writer
+    password: ${env:ES_WRITER_PASSWORD}
+    logs_index: logs-portal-default
+    traces_index: traces-portal-default
+    mapping: { mode: ecs }
+    retry: { enabled: true, initial_interval: 1s, max_interval: 30s, max_requests: 10 }
+    sending_queue: { enabled: true, num_consumers: 2, queue_size: 5000, storage: file_storage }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Phases 1-4 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, Prometheus with alert rules, and Grafana (provisioned dashboards + alert rules). ELK/Datadog are not built yet (logs/traces still go only to the `debug` exporter). `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
+Phases 1-5 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, Prometheus with alert rules, Grafana (provisioned dashboards + alert rules), and the Elastic stack (Elasticsearch, Logstash, Kibana). Datadog is not built yet. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
 
 ## Commands
 
@@ -49,6 +49,10 @@ Grafana dashboards (at minimum: Application Performance, Infrastructure Health, 
 ## Collector routing
 
 Destinations are `EXPORT_<NAME>=true|false` flags (default on). `otel-config` (a one-shot container running `observability/otel-collector/render_config.py`) writes `routing.yaml` with only the enabled exporters' definitions and one pipeline per signal; the Collector loads `base.yaml` + that file. After changing flags or any `exporters.*.yaml`: `make collector-reload`. `make routes` shows the result. New destination = `exporters.<name>.yaml` + a row in `DESTINATIONS` + a flag in `docker-compose.yml`. Prometheus metric names are normalised OTel names (e.g. `portal_celery_tasks_total`, `http_server_duration_milliseconds_*`); latency is in ms.
+
+## Elastic stack
+
+`es-setup` and `kibana-setup` are idempotent one-shot containers (`observability/elasticsearch/setup.py`, `observability/kibana/setup.py`): users/roles, ILM, data-stream templates with keyword mappings, the span-normalising ingest pipeline, and Kibana data views/searches/dashboard. Logstash/Kibana wait for `es-setup` to *complete successfully*, so any non-zero exit there stalls the stack: keep it safe to re-run on a fresh and a populated cluster. Roles: `portal_writer` (Collector, Logstash) and `portal_reader` (Grafana) both need the read-only cluster `monitor` privilege for health checks. In Elasticsearch severity is `WARN` (not `WARNING`); `trace.id` is the shared correlation key. Changing a field *type* needs the data streams deleted (see `docs/signal-compat.md`). Collector queue volume `/queue` is chowned to uid 10001 by `otel-config`.
 
 ## Grafana
 
