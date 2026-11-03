@@ -176,6 +176,7 @@ make load         # 60 s of mixed API traffic (generates telemetry)
 Needs Docker with Compose v2 and about 8 GB of free RAM. API on http://127.0.0.1:8000 (`/healthz`, `/readyz`, `/api/assets/`, `/api/workorders/`, `/api/reports/`, `/api/external/rates/`). Celery Beat emits baseline activity (heartbeat, synthetic load, stale sweep, one log record per severity) even with no traffic. Full instructions, URLs and logins: [`docs/deployment.md`](docs/deployment.md).
 
 ## Docs
+- [`demo.md`](demo.md): guided full run-through, from start to breaking things on purpose
 - [`docs/architecture.md`](docs/architecture.md): components, networks, how one request flows, design decisions
 - [`docs/deployment.md`](docs/deployment.md): requirements, first run, URLs and logins, configuration, adding a destination
 - [`docs/troubleshooting.md`](docs/troubleshooting.md): symptoms and causes (mostly real problems met while building this)
