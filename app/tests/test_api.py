@@ -59,10 +59,25 @@ def test_healthz(db):
     assert APIClient().get("/healthz").status_code == 200
 
 
-def test_login_is_throttled(db, settings):
-    from portal.views import LoginThrottle
+def test_login_is_throttled_per_username_even_when_authenticated(db):
+    from portal.views import LoginIPThrottle, LoginUserThrottle
 
-    LoginThrottle.THROTTLE_RATES = {"login": "3/min"}
+    LoginIPThrottle.THROTTLE_RATES = {"login_ip": "100/min"}
+    LoginUserThrottle.THROTTLE_RATES = {"login_user": "3/min"}
+    User.objects.create_user("bob", password="pw")
     c = APIClient()
-    codes = [c.post("/api/auth/login", {"username": "x", "password": "y"}).status_code for _ in range(5)]
-    assert codes[:3] == [401, 401, 401] and 429 in codes[3:]
+    codes = [c.post("/api/auth/login", {"username": "bob", "password": "pw"}).status_code for _ in range(5)]
+    assert codes[:3] == [200, 200, 200] and codes[3:] == [429, 429]  # session auth doesn't bypass
+
+
+def test_forwarded_header_does_not_evade_ip_throttle(db):
+    from portal.views import LoginIPThrottle, LoginUserThrottle
+
+    LoginIPThrottle.THROTTLE_RATES = {"login_ip": "3/min"}
+    LoginUserThrottle.THROTTLE_RATES = {"login_user": "100/min"}
+    c = APIClient()
+    codes = [
+        c.post("/api/auth/login", {"username": f"u{i}", "password": "y"}, HTTP_X_FORWARDED_FOR=f"1.2.3.{i}").status_code
+        for i in range(5)
+    ]
+    assert 429 in codes[3:]

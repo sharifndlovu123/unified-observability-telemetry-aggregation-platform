@@ -1,0 +1,26 @@
+# Shared building blocks. Pipelines (pipelines.yaml) pick which of these each signal uses.
+receivers:
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+      http: { endpoint: 0.0.0.0:4318 }
+
+processors:
+  # Must be first in every pipeline: sheds load before the Collector runs out of memory.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+  # Stamps every signal with the same environment/gateway labels, regardless of source.
+  resource:
+    attributes:
+      - { key: deployment.environment, value: "${env:ENVIRONMENT:-dev}", action: upsert }
+      - { key: telemetry.gateway, value: otel-collector, action: insert }
+  # Must be last: groups data into fewer, larger exports to backends.
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+
+exporters:
+  debug:
+    verbosity: ${env:DEBUG_EXPORTER_VERBOSITY:-basic}

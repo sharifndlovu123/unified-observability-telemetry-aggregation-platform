@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Phase 1 is implemented (Django app, Postgres, Redis, Celery worker/beat in `docker-compose.yml`); there is no telemetry yet. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (they may be absent on a fresh clone); they define scope, design decisions, and acceptance criteria.
+Phases 1-2 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), and an `otel-collector` whose only exporter is `debug`. Prometheus/Grafana/ELK/Datadog are not built yet. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
 
 ## Commands
 
@@ -45,3 +45,11 @@ Planned compose services: django, postgres, redis, celery-worker, celery-beat, o
 ## Deliverables beyond code
 
 Grafana dashboards (at minimum: Application Performance, Infrastructure Health, Background Processing), Prometheus alert rules, Kibana views, and reproducible docs for six operational scenarios (latency degradation, app errors, Celery failure, slow DB, adding a new provider, Collector failure). Out of scope: Kubernetes, HA Collector clusters, Terraform, SIEM.
+
+## Telemetry gotchas (learned the hard way)
+
+- App source is baked into the image (no bind mount): **rebuild (`make up`) after editing app code or tests** before running `make test`.
+- `setup_telemetry()` runs per process: in `config/wsgi.py` for gunicorn workers, and via Celery's `worker_process_init` / `beat_init` (the SDK starts threads, so never init in the prefork parent).
+- Don't mutate `LogRecord`s in a logging Filter to add fields (e.g. `trace_id=None`): the OTLP handler turns them into attributes, warns, that warning is logged, and it recurses. JSON enrichment lives in `ContextJsonFormatter`; the OTLP handler excludes `opentelemetry*` loggers.
+- Metric names/attributes in `app/portal/metrics.py` are the contract for future dashboards and alerts; keep attribute cardinality low.
+

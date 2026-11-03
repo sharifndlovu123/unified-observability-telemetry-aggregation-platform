@@ -2,6 +2,9 @@ from django.conf import settings
 from django.db import models
 
 
+"""Small ops domain: just enough relational work to produce interesting DB spans."""
+
+
 class Asset(models.Model):
     name = models.CharField(max_length=120)
     type = models.CharField(max_length=60, default="server")

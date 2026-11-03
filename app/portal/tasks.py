@@ -11,6 +11,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+# Task outcome/duration metrics come from portal.celery_signals; spans from the Celery instrumentation.
 @shared_task
 def generate_report(report_id):
     from .models import Asset, Report, WorkOrder
@@ -18,6 +19,7 @@ def generate_report(report_id):
     report = Report.objects.get(pk=report_id)
     report.status = "running"
     report.save(update_fields=["status"])
+    # Degrade gracefully: a failed upstream call should not fail the whole report.
     try:
         rates = requests.get(settings.EXTERNAL_API_URL, timeout=settings.EXTERNAL_API_TIMEOUT).json()
     except requests.RequestException:
@@ -37,6 +39,7 @@ def generate_report(report_id):
 
 @shared_task
 def sweep_stale_workorders():
+    """Scheduled housekeeping: marks long-open work orders stale."""
     from .models import WorkOrder
 
     cutoff = timezone.now() - timedelta(minutes=10)
@@ -47,6 +50,7 @@ def sweep_stale_workorders():
 
 @shared_task
 def heartbeat():
+    """Cheapest possible scheduled task; proves Beat -> broker -> worker is alive."""
     logger.debug("celery heartbeat")
 
 
@@ -64,3 +68,13 @@ def synthetic_load_tick():
     )
     cache.get(f"asset:{asset.pk}")
     return asset.pk
+
+
+@shared_task
+def log_levels_demo():
+    """Emits one record per severity so log pipelines and filters can be demonstrated."""
+    logger.debug("demo debug record")
+    logger.info("demo info record")
+    logger.warning("demo warning record")
+    logger.error("demo error record")
+    logger.critical("demo critical record")

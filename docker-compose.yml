@@ -1,14 +1,24 @@
 name: uotap
 
+# Shared OTel settings for every app container. The app only knows the Collector's OTLP
+# address; backends (Prometheus, Elastic, Datadog) are configured in the Collector, not here.
+x-otel: &otel
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${ENVIRONMENT:-dev},service.version=${APP_VERSION:-0.1.0}
+  OTEL_METRIC_EXPORT_INTERVAL: "10000"
+  OTEL_PYTHON_DJANGO_EXCLUDED_URLS: healthz,readyz
+  OTEL_PYTHON_DJANGO_INSTRUMENT: "true"
+
+# Common settings for the three app-side containers (web, worker, beat share one image).
 x-app: &app
   build: ./app
   env_file: .env
-  environment:
-    POSTGRES_HOST: postgres
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
-  networks: [app-net]
+  networks: [app-net, telemetry-net]
 
 services:
   postgres:
@@ -35,8 +45,25 @@ services:
       retries: 10
     networks: [app-net]
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command:
+      - --config=/etc/otelcol/base.yaml
+      - --config=/etc/otelcol/pipelines.yaml
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      DEBUG_EXPORTER_VERBOSITY: ${DEBUG_EXPORTER_VERBOSITY:-basic}
+    volumes:
+      - ./observability/otel-collector:/etc/otelcol:ro
+    # No healthcheck: the contrib image is distroless (no shell/curl). Phase 3 adds the
+    # health_check extension, which Prometheus/Compose-external probes can use.
+    networks: [telemetry-net]
+
   django:
     <<: *app
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: portal-django
     command: >
       sh -c "python manage.py migrate --noinput &&
              gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2"
@@ -50,6 +77,9 @@ services:
 
   celery-worker:
     <<: *app
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: portal-celery-worker
     command: celery -A config worker -l info
     depends_on:
       django: { condition: service_healthy }
@@ -62,6 +92,9 @@ services:
 
   celery-beat:
     <<: *app
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: portal-celery-beat
     command: celery -A config beat -l info -s /var/lib/beat/celerybeat-schedule
     depends_on:
       django: { condition: service_healthy }
@@ -73,8 +106,11 @@ services:
       retries: 5
       start_period: 20s
 
+# app-net: business traffic (db/cache). telemetry-net: OTLP to the Collector only.
+# Postgres and Redis are deliberately not on telemetry-net.
 networks:
   app-net:
+  telemetry-net:
 
 volumes:
   pgdata:
