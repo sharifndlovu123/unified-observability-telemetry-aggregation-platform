@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Application + infrastructure metrics, as exported by the Collector's prometheus exporter.
+  - job_name: otel-collector-metrics
+    static_configs: [{ targets: ["otel-collector:8889"] }]
+  # The Collector's own health/throughput (also acts as its liveness check).
+  - job_name: otel-collector-self
+    static_configs: [{ targets: ["otel-collector:8888"] }]
+  - job_name: prometheus
+    static_configs: [{ targets: ["localhost:9090"] }]

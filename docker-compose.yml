@@ -45,19 +45,55 @@ services:
       retries: 10
     networks: [app-net]
 
+  # One-shot: turns the EXPORT_* on/off flags into the Collector's routing config.
+  # Re-runs whenever its env changes (`make collector-reload` after editing fragments).
+  otel-config:
+    image: python:3.12-slim
+    command: python /src/render_config.py
+    environment:
+      # Flags are ON by default so one `make up` shows every destination working.
+      # Set a flag to false in .env to stop sending to that destination.
+      EXPORT_DEBUG: ${EXPORT_DEBUG:-true}
+      EXPORT_PROMETHEUS: ${EXPORT_PROMETHEUS:-true}
+    volumes:
+      - ./observability/otel-collector:/src:ro
+      - otelcol-generated:/generated
+    restart: "no"
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.116.1
+    # Static building blocks (base.yaml) + generated routing (exporters + pipelines).
     command:
       - --config=/etc/otelcol/base.yaml
-      - --config=/etc/otelcol/pipelines.yaml
+      - --config=/generated/routing.yaml
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-dev}
       DEBUG_EXPORTER_VERBOSITY: ${DEBUG_EXPORTER_VERBOSITY:-basic}
     volumes:
       - ./observability/otel-collector:/etc/otelcol:ro
-    # No healthcheck: the contrib image is distroless (no shell/curl). Phase 3 adds the
-    # health_check extension, which Prometheus/Compose-external probes can use.
-    networks: [telemetry-net]
+      - otelcol-generated:/generated:ro
+    depends_on:
+      otel-config: { condition: service_completed_successfully }
+    # No Compose healthcheck: the contrib image is distroless (no shell/curl). Liveness is
+    # exposed on :13133 (health_check) and watched by Prometheus via the :8888 `up` metric.
+    networks: [telemetry-net, backend-net]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [backend-net]
 
   django:
     <<: *app
@@ -111,8 +147,11 @@ services:
 networks:
   app-net:
   telemetry-net:
+  backend-net:   # Collector -> storage/visualisation backends; app containers are not on it
 
 volumes:
   pgdata:
   redisdata:
   beatdata:
+  promdata:
+  otelcol-generated:

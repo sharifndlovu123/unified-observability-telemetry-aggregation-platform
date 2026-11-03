@@ -59,22 +59,37 @@ def test_healthz(db):
     assert APIClient().get("/healthz").status_code == 200
 
 
-def test_login_is_throttled_per_username_even_when_authenticated(db):
-    from portal.views import LoginIPThrottle, LoginUserThrottle
+def test_only_failed_logins_consume_user_budget(db):
+    from portal.views import LoginFailureThrottle, LoginIPThrottle
 
     LoginIPThrottle.THROTTLE_RATES = {"login_ip": "100/min"}
-    LoginUserThrottle.THROTTLE_RATES = {"login_user": "3/min"}
+    LoginFailureThrottle.THROTTLE_RATES = {"login_user": "3/min"}
     User.objects.create_user("bob", password="pw")
     c = APIClient()
-    codes = [c.post("/api/auth/login", {"username": "bob", "password": "pw"}).status_code for _ in range(5)]
-    assert codes[:3] == [200, 200, 200] and codes[3:] == [429, 429]  # session auth doesn't bypass
+    ok = [c.post("/api/auth/login", {"username": "bob", "password": "pw"}).status_code for _ in range(5)]
+    assert ok == [200] * 5  # successes (even while authenticated) never lock the account
+    bad = [c.post("/api/auth/login", {"username": "bob", "password": "no"}).status_code for _ in range(5)]
+    assert bad == [401, 401, 401, 429, 429]
+
+
+def test_failure_lockout_is_per_ip_not_global(db):
+    from portal.views import LoginFailureThrottle, LoginIPThrottle
+
+    LoginIPThrottle.THROTTLE_RATES = {"login_ip": "100/min"}
+    LoginFailureThrottle.THROTTLE_RATES = {"login_user": "2/min"}
+    User.objects.create_user("carol", password="pw")
+    attacker, victim = APIClient(REMOTE_ADDR="6.6.6.6"), APIClient(REMOTE_ADDR="7.7.7.7")
+    for _ in range(3):
+        attacker.post("/api/auth/login", {"username": "carol", "password": "no"})
+    assert attacker.post("/api/auth/login", {"username": "carol", "password": "no"}).status_code == 429
+    assert victim.post("/api/auth/login", {"username": "carol", "password": "pw"}).status_code == 200
 
 
 def test_forwarded_header_does_not_evade_ip_throttle(db):
-    from portal.views import LoginIPThrottle, LoginUserThrottle
+    from portal.views import LoginFailureThrottle, LoginIPThrottle
 
     LoginIPThrottle.THROTTLE_RATES = {"login_ip": "3/min"}
-    LoginUserThrottle.THROTTLE_RATES = {"login_user": "100/min"}
+    LoginFailureThrottle.THROTTLE_RATES = {"login_user": "100/min"}
     c = APIClient()
     codes = [
         c.post("/api/auth/login", {"username": f"u{i}", "password": "y"}, HTTP_X_FORWARDED_FOR=f"1.2.3.{i}").status_code

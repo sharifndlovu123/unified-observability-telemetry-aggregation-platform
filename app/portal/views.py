@@ -27,31 +27,37 @@ logger = logging.getLogger(__name__)
 ASSET_CACHE_TTL = 60
 
 
-class _LoginThrottle(SimpleRateThrottle):
-    """Always yields a cache key (even for authenticated sessions) so it cannot be skipped."""
+class LoginIPThrottle(SimpleRateThrottle):
+    """Caps ALL login attempts per source IP (NUM_PROXIES=0 -> REMOTE_ADDR only)."""
 
-    def key_suffix(self, request):
-        raise NotImplementedError
-
-    def get_cache_key(self, request, view):
-        return self.cache_format % {"scope": self.scope, "ident": self.key_suffix(request)}
-
-
-class LoginIPThrottle(_LoginThrottle):
     scope = "login_ip"
 
-    def key_suffix(self, request):
-        return self.get_ident(request)  # NUM_PROXIES=0 -> REMOTE_ADDR only
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-class LoginUserThrottle(_LoginThrottle):
-    """Limits guessing against one account even when the source IP rotates."""
+class LoginFailureThrottle(SimpleRateThrottle):
+    """Caps FAILED attempts per (username, IP). Successful logins never use the budget,
+    and keying on IP as well means an attacker can only lock themselves out, not the
+    real user logging in from elsewhere."""
 
     scope = "login_user"
 
-    def key_suffix(self, request):
+    def get_cache_key(self, request, view):
         name = str(request.data.get("username", "")).strip().lower()
-        return hashlib.sha256(name.encode()).hexdigest()
+        ident = hashlib.sha256(f"{name}|{self.get_ident(request)}".encode()).hexdigest()
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+    def allow_request(self, request, view):
+        # Check only; the hit is recorded by record_failure() after a bad password.
+        self.key = self.get_cache_key(request, view)
+        self.now = self.timer()
+        self.history = [t for t in self.cache.get(self.key, []) if t > self.now - self.duration]
+        return len(self.history) < self.num_requests
+
+    def record_failure(self):
+        self.history.insert(0, self.now)
+        self.cache.set(self.key, self.history, self.duration)
 
 
 def healthz(request):
@@ -85,8 +91,11 @@ def stub_rates(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@throttle_classes([LoginIPThrottle, LoginUserThrottle])
+@throttle_classes([LoginIPThrottle])
 def login_view(request):
+    failures = LoginFailureThrottle()
+    if not failures.allow_request(request, None):
+        return Response({"detail": "too many failed attempts"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     user = authenticate(
         request,
         username=request.data.get("username"),
@@ -94,6 +103,7 @@ def login_view(request):
     )
     if user is None:
         # Never log submitted credentials or the attempted username.
+        failures.record_failure()
         logger.warning("login failed")
         return Response({"detail": "invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
     login(request, user)

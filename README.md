@@ -44,7 +44,28 @@ The app's only telemetry configuration is `OTEL_EXPORTER_OTLP_ENDPOINT` (the Col
 - **Processors** (order matters): `memory_limiter` (first; protects the Collector) → `resource` (stamps `deployment.environment` on everything) → `batch` (last; fewer, bigger writes).
 - **Exporters**: where data goes. Adding or removing a backend is a Collector config change, with **zero app changes**.
 
-Files: `base.yaml` (receivers/processors/exporters definitions) and `pipelines.yaml` (which signal uses what), merged at startup with repeated `--config` flags.
+Files in `observability/otel-collector/`:
+- `base.yaml`: receivers, processors, self-metrics, health check.
+- `exporters.<name>.yaml`: one file per destination (`debug`, `prometheus`; more later).
+- `render_config.py`: run once by the `otel-config` container; reads the `EXPORT_*` flags below and writes the Collector's routing (`exporters:` + one pipeline per signal) containing **only the enabled destinations**.
+
+#### Turning destinations on and off
+
+Every available destination is **on by default**, so `make up` shows the whole platform working at once. To stop sending to one, flip its flag in `.env` and reload; nothing else changes and the app is never touched:
+
+```
+EXPORT_PROMETHEUS=false   # in .env
+make collector-reload     # re-renders routing, restarts only the Collector
+make routes               # shows where each signal now goes
+```
+
+| Flag | Receives | Default |
+|---|---|---|
+| `EXPORT_DEBUG` | all signals (printed in the Collector log) | on |
+| `EXPORT_PROMETHEUS` | metrics (scrape endpoint `:8889`) | on |
+| `EXPORT_ELASTICSEARCH` / `EXPORT_DATADOG` | logs, traces / all | later phases |
+
+A signal with every destination off still gets a valid (no-op) pipeline. To add a destination: add `exporters.<name>.yaml`, one row in `render_config.py`, one flag in `docker-compose.yml`.
 
 ### 3. The data: backends that store and show it
 
@@ -64,8 +85,9 @@ Grafana stores nothing: it queries Prometheus and Elasticsearch. Kibana is Elast
 |---|---|
 | App + Postgres + Redis + Celery | ✅ built |
 | App instrumentation (metrics, logs, traces) | ✅ built, verified end-to-end |
-| Collector | ✅ running, **debug exporter only** (prints what it receives) |
-| Prometheus / Grafana / ELK / Datadog | ⏳ later phases |
+| Collector | ✅ flag-driven routing, self-metrics, health endpoint |
+| Prometheus | ✅ scraping the Collector; 6 alert rules (`observability/prometheus/rules`) at http://127.0.0.1:9090 |
+| Grafana / ELK / Datadog | ⏳ later phases (logs and traces currently go to the debug exporter only) |
 
 See what the Collector receives: `docker compose logs -f otel-collector`.
 Full span detail: `DEBUG_EXPORTER_VERBOSITY=detailed docker compose up -d otel-collector`.

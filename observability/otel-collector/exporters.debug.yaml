@@ -1,0 +1,4 @@
+# Prints what the Collector receives. Verbosity: basic | normal | detailed.
+exporters:
+  debug:
+    verbosity: ${env:DEBUG_EXPORTER_VERBOSITY:-basic}

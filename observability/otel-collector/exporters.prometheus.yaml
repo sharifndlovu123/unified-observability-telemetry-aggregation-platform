@@ -1,0 +1,9 @@
+# Metrics destination. Prometheus is pull-based, so this exposes a scrape endpoint
+# (:8889) rather than pushing; Prometheus scrapes it (see observability/prometheus).
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Turns resource attributes (service.name, deployment.environment) into labels,
+    # so you can filter by service in PromQL.
+    resource_to_telemetry_conversion:
+      enabled: true

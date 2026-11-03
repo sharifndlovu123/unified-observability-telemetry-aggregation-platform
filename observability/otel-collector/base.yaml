@@ -1,4 +1,5 @@
-# Shared building blocks. Pipelines (pipelines.yaml) pick which of these each signal uses.
+# Shared building blocks. Exporters live in exporters.*.yaml (one file per destination);
+# pipelines.yaml chooses which of them each signal uses.
 receivers:
   otlp:
     protocols:
@@ -16,11 +17,31 @@ processors:
     attributes:
       - { key: deployment.environment, value: "${env:ENVIRONMENT:-dev}", action: upsert }
       - { key: telemetry.gateway, value: otel-collector, action: insert }
+  # Drops liveness/readiness noise (defence in depth: the app already excludes these).
+  filter/noise:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["http.target"] == "/healthz"'
+        - 'attributes["http.target"] == "/readyz"'
   # Must be last: groups data into fewer, larger exports to backends.
   batch:
     timeout: 5s
     send_batch_size: 8192
 
+extensions:
+  # Liveness probe for the Collector itself (:13133). The image has no shell/curl, so
+  # Compose can't probe it; Prometheus watches `up{job="otel-collector-self"}` instead.
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # Placeholder so a signal with every destination switched off is still a valid pipeline.
 exporters:
-  debug:
-    verbosity: ${env:DEBUG_EXPORTER_VERBOSITY:-basic}
+  nop:
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8888   # the Collector's own metrics (queue sizes, send failures)

@@ -1,0 +1,49 @@
+# Metric names are the Prometheus-normalised forms of the OTel instruments
+# (dots -> underscores, unit suffix, _total for counters). Latency is in MILLISECONDS
+# (http_server_duration_milliseconds_*); app-defined durations are in seconds.
+groups:
+  - name: portal-app
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_server_duration_milliseconds_count{http_status_code=~"5.."}[5m]))
+            / sum(rate(http_server_duration_milliseconds_count[5m])) > 0.05
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "More than 5% of requests are failing with 5xx" }
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket[5m]))) > 1000
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "p95 request latency above 1s for {{ $labels.service_name }}" }
+
+      - alert: CeleryTaskFailures
+        expr: sum by (task) (rate(portal_celery_tasks_total{outcome="failure"}[5m])) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: "Celery task {{ $labels.task }} is failing" }
+
+      - alert: AppMetricsMissing
+        expr: absent(portal_app_uptime_seconds)
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "No app metrics arriving: app, Collector or exporter is down" }
+
+  - name: telemetry-pipeline
+    rules:
+      - alert: CollectorDown
+        expr: up{job="otel-collector-self"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "The OpenTelemetry Collector is unreachable" }
+
+      - alert: CollectorExportFailures
+        expr: sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points[5m])
+              or rate(otelcol_exporter_send_failed_log_records[5m])
+              or rate(otelcol_exporter_send_failed_spans[5m])) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: "Collector cannot deliver telemetry to {{ $labels.exporter }}" }

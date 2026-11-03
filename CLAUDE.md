@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Phases 1-2 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), and an `otel-collector` whose only exporter is `debug`. Prometheus/Grafana/ELK/Datadog are not built yet. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
+Phases 1-3 done (+ Prometheus): Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, and Prometheus with alert rules. Grafana/ELK/Datadog are not built yet (logs/traces still go only to the `debug` exporter). `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
 
 ## Commands
 
@@ -45,6 +45,10 @@ Planned compose services: django, postgres, redis, celery-worker, celery-beat, o
 ## Deliverables beyond code
 
 Grafana dashboards (at minimum: Application Performance, Infrastructure Health, Background Processing), Prometheus alert rules, Kibana views, and reproducible docs for six operational scenarios (latency degradation, app errors, Celery failure, slow DB, adding a new provider, Collector failure). Out of scope: Kubernetes, HA Collector clusters, Terraform, SIEM.
+
+## Collector routing
+
+Destinations are `EXPORT_<NAME>=true|false` flags (default on). `otel-config` (a one-shot container running `observability/otel-collector/render_config.py`) writes `routing.yaml` with only the enabled exporters' definitions and one pipeline per signal; the Collector loads `base.yaml` + that file. After changing flags or any `exporters.*.yaml`: `make collector-reload`. `make routes` shows the result. New destination = `exporters.<name>.yaml` + a row in `DESTINATIONS` + a flag in `docker-compose.yml`. Prometheus metric names are normalised OTel names (e.g. `portal_celery_tasks_total`, `http_server_duration_milliseconds_*`); latency is in ms.
 
 ## Telemetry gotchas (learned the hard way)
 
