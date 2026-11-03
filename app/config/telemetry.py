@@ -7,6 +7,7 @@ Call setup_telemetry() once per process (after fork for Celery prefork workers).
 import logging
 import os
 import re
+import socket
 import sys
 
 from opentelemetry import _logs, metrics, trace
@@ -17,6 +18,7 @@ from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -102,14 +104,26 @@ def setup_telemetry(role):
         _setup_logging()
         return
 
-    resource = Resource.create({})  # service.name etc. come from OTEL_* env vars
+    # service.name etc. come from OTEL_* env vars. service.instance.id MUST be unique per OS
+    # process: gunicorn and Celery run several, and processes that export cumulative metrics
+    # under an identical resource overwrite each other in the Collector/Prometheus (counters and
+    # histogram buckets then jump around and under-count). One series per process; PromQL sums them.
+    resource = Resource.create({"service.instance.id": f"{socket.gethostname()}-{os.getpid()}"})
 
     tp = TracerProvider(resource=resource)
     tp.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(tp)
 
+    # The SDK's default histogram buckets (0, 5, 10, 25, ... 10000) are sized for MILLISECONDS.
+    # Our *.duration histograms are in SECONDS, so with the defaults every observation lands in the
+    # first bucket and percentiles are meaningless. This view gives them second-scale buckets.
+    seconds_buckets = View(
+        instrument_name="portal.*.duration",
+        aggregation=ExplicitBucketHistogramAggregation([0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60]),
+    )
     metrics.set_meter_provider(
-        MeterProvider(resource=resource, metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())])
+        MeterProvider(resource=resource, views=[seconds_buckets],
+                      metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())])
     )
 
     lp = LoggerProvider(resource=resource)

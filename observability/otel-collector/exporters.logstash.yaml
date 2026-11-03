@@ -1,3 +1,4 @@
+# routing: exporter=otlphttp/logstash signals=logs default=true
 # Logs -> Logstash. Logstash has no native OTLP input, so we send OTLP as JSON over HTTP
 # to its http input; the pipeline in observability/logstash flattens it for Elasticsearch.
 # The input requires basic auth; the basicauth extension adds the header to each request.

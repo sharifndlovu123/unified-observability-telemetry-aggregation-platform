@@ -43,15 +43,31 @@ call("PUT", "/_ilm/policy/portal-retention", {"policy": {"phases": {
     "delete": {"min_age": "7d", "actions": {"delete": {}}}}}})
 
 # trace.id / span.id are interpolated into links (Grafana -> Kibana) and queries, so only
-# well-formed hex IDs are allowed to exist; anything else is removed at ingest.
-def drop_unless_hex(field, length):
-    parts = field.split(".")
-    path = "ctx." + "?.".join(parts)
-    return {"remove": {"field": field, "ignore_missing": True, "ignore_failure": True,
-                       "if": f"{path} != null && !(({path} instanceof String) && {path}.length() == {length} && {path} ==~ /[0-9a-f]+/)"}}
-
-
-ID_CHECKS = [drop_unless_hex("trace.id", 32), drop_unless_hex("span.id", 16)]
+# well-formed lowercase-hex IDs may exist. This validation FAILS CLOSED:
+#  * dot_expander turns a literal dotted key ("trace.id") into the nested form first, so both
+#    shapes are checked by the same code;
+#  * the script removes any invalid id (and `trace`/`span` themselves if they are not objects);
+#  * there is deliberately no ignore_failure: if validation throws, the document is rejected
+#    rather than stored unchecked.
+ID_CHECKS = [
+    {"dot_expander": {"field": "trace.id"}},
+    {"dot_expander": {"field": "span.id"}},
+    {"dot_expander": {"field": "span.parent_id"}},
+    {"script": {"lang": "painless", "source": """
+        boolean ok(def v, int n) { return v instanceof String && ((String) v).length() == n && ((String) v) ==~ /[0-9a-f]+/; }
+        if (ctx.containsKey('trace')) {
+          if (!(ctx.trace instanceof Map)) { ctx.remove('trace'); }
+          else if (ctx.trace.containsKey('id') && !ok(ctx.trace.id, 32)) { ctx.trace.remove('id'); }
+        }
+        if (ctx.containsKey('span')) {
+          if (!(ctx.span instanceof Map)) { ctx.remove('span'); }
+          else {
+            if (ctx.span.containsKey('id') && !ok(ctx.span.id, 16)) { ctx.span.remove('id'); }
+            if (ctx.span.containsKey('parent_id') && !ok(ctx.span.parent_id, 16)) { ctx.span.remove('parent_id'); }
+          }
+        }
+    """}},
+]
 call("PUT", "/_ingest/pipeline/portal-logs-validate", {
     "description": "Drop malformed trace/span ids from log documents", "processors": ID_CHECKS})
 

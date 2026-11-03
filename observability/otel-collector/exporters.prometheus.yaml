@@ -1,3 +1,4 @@
+# routing: exporter=prometheus signals=metrics default=true
 # Metrics destination. Prometheus is pull-based, so this exposes a scrape endpoint
 # (:8889) rather than pushing; Prometheus scrapes it (see observability/prometheus).
 exporters:

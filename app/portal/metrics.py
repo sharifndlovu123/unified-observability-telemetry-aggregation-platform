@@ -29,5 +29,15 @@ def _queue_depth(_options):
         return
 
 
+def _faults(_options):
+    # 1 while a fault is injected, so dashboards can show a "fault active" banner.
+    import faults
+
+    on = faults.active()
+    for name in faults.FAULTS:
+        yield Observation(1 if name in on else 0, {"fault": name})
+
+
+meter.create_observable_gauge("portal.fault.active", callbacks=[_faults], description="1 while a demo fault is active")
 meter.create_observable_gauge("portal.app.uptime", callbacks=[_uptime], unit="s")
 meter.create_observable_gauge("portal.celery.queue.depth", callbacks=[_queue_depth])

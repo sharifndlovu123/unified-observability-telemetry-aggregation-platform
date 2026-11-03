@@ -5,27 +5,26 @@ Why this exists: the Collector can't build a pipeline's exporter list from boole
 we want "EXPORT_PROMETHEUS=false" to be all it takes to stop sending there. This runs once
 (compose service `otel-config`) before the Collector starts and writes
 /generated/routing.yaml containing:
-  * the exporter definitions of ENABLED destinations only (from exporters.<name>.yaml), and
+  * the exporter (and extension) definitions of ENABLED destinations only, and
   * one pipeline per signal listing only the enabled exporters that handle that signal.
-Disabled destinations are never loaded, so e.g. Datadog needs no API key until enabled.
+Disabled destinations are never loaded, so e.g. a destination needing an API key costs nothing
+until it is enabled.
 
-To add a destination: drop exporters.<name>.yaml next to this file, add a row to
-DESTINATIONS, add an EXPORT_<NAME> flag in docker-compose.yml. The app is not touched.
+Destinations are DISCOVERED, not hard-coded: every exporters.<name>.yaml next to this file is
+one, and its first lines declare how it is routed:
+    # routing: exporter=<id used in pipelines> signals=<csv of metrics,logs,traces> default=<true|false>
+Enabled when EXPORT_<NAME> is truthy (falling back to `default`) or <name> is listed in
+EXPORT_EXTRA. To add a destination: drop in exporters.<name>.yaml. No Python and no app change.
 """
 import os
+import re
 import sys
 from pathlib import Path
 
 SRC = Path(__file__).parent
 OUT = Path(os.environ.get("OUT_FILE", "/generated/routing.yaml"))
 
-# flag name -> (exporter id used in pipelines, signals it receives, default flag value)
-DESTINATIONS = {
-    "debug": ("debug", ("metrics", "logs", "traces"), "true"),
-    "prometheus": ("prometheus", ("metrics",), "true"),
-    "elasticsearch": ("elasticsearch", ("logs", "traces"), "true"),
-    "logstash": ("otlphttp/logstash", ("logs",), "true"),
-}
+SIGNALS = ("metrics", "logs", "traces")
 QUEUE_DIR = Path("/queue")  # persistent exporter queue volume (file_storage extension)
 COLLECTOR_UID = 10001       # the contrib image runs as this non-root user
 # Receivers and processor chain per signal (order matters: memory_limiter first, batch last).
@@ -36,8 +35,24 @@ PIPELINES = {
 }
 
 
-def flag(name, default):
-    return os.environ.get(f"EXPORT_{name.upper()}", default).strip().lower() in ("1", "true", "yes", "on")
+def truthy(value):
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def discover():
+    """{name: (exporter id, signals, default)} read from each fragment's `# routing:` header."""
+    found = {}
+    for frag in sorted(SRC.glob("exporters.*.yaml")):
+        name = frag.name.split(".")[1]
+        m = re.search(r"^# routing:\s*(.+)$", frag.read_text(), re.M)
+        if not m:
+            sys.exit(f"{frag.name} has no '# routing: exporter=... signals=... default=...' header")
+        meta = dict(kv.split("=", 1) for kv in m.group(1).split())
+        signals = tuple(meta["signals"].split(","))
+        if not set(signals) <= set(SIGNALS):
+            sys.exit(f"{frag.name}: unknown signal in {signals}")
+        found[name] = (meta["exporter"], signals, meta.get("default", "false"))
+    return found
 
 
 def fragment_sections(path):
@@ -55,12 +70,14 @@ def fragment_sections(path):
 
 
 def main():
-    enabled = {n: d for n, d in DESTINATIONS.items() if flag(n, d[2])}
+    extra = {x.strip() for x in os.environ.get("EXPORT_EXTRA", "").split(",") if x.strip()}
+    enabled = {
+        n: d for n, d in discover().items()
+        if truthy(os.environ.get(f"EXPORT_{n.upper()}", d[2])) or n in extra
+    }
     merged = {}
     for name in enabled:
         frag = SRC / f"exporters.{name}.yaml"
-        if not frag.exists():
-            sys.exit(f"EXPORT_{name.upper()} is on but {frag.name} does not exist")
         for section, body in fragment_sections(frag).items():
             merged.setdefault(section, []).extend(body)
     lines = []

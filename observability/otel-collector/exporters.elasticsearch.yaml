@@ -1,7 +1,14 @@
+# routing: exporter=elasticsearch signals=logs,traces default=true
 # Logs and traces -> Elasticsearch data streams (logs-portal-default, traces-portal-default).
 # `ecs` mapping gives Kibana-friendly fields: @timestamp, log.level, message, trace.id,
-# span.id, service.name. The sending queue is persisted to disk (file_storage) so queued
-# telemetry survives a Collector restart; retries back off (1s..30s, up to 10 attempts per batch).
+# span.id, service.name.
+#
+# RESILIENCE CAVEAT (verified by Scenario 6, Collector 0.116): `retry` here only retries HTTP
+# status failures from a REACHABLE cluster (429/502/503/504), i.e. an overloaded Elasticsearch.
+# If Elasticsearch is UNREACHABLE the exporter logs "Exporting failed. Dropping data." and the
+# batch is lost; `retry_on_failure` is not supported for this exporter (checked up to 0.140).
+# `sending_queue` only buffers batches in flight. For durable log delivery use the Logstash
+# path (exporters.logstash.yaml), whose standard exporter retries on connection failure.
 extensions:
   file_storage:
     directory: /queue

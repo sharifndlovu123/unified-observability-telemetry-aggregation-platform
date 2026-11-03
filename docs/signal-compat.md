@@ -24,10 +24,9 @@ Where a signal changes shape on its way from the app to a backend. All of these 
 ## Host metrics
 - The Collector's `hostmetrics` receiver reports the **Docker host**, not individual containers. Per-container CPU/memory would need cAdvisor or the Docker stats receiver.
 
-## Delivery guarantees
-- App → Collector: the SDK buffers in memory and drops when full (bounded, lossy) so the app never blocks.
-- Collector → Elasticsearch: retries with backoff plus an on-disk queue (`file_storage`), so it survives destination outages and Collector restarts. Verified with a ~40s Elasticsearch outage: all telemetry from the outage window arrived afterwards.
-- Collector → Prometheus is pull-based; a Collector outage is a gap in the series.
-
-## Identifier safety
-- `trace.id` / `span.id` end up in links (Grafana → Kibana) and queries. Elasticsearch ingest pipelines (`portal-logs-validate`, `portal-traces-normalise`) remove any value that is not well-formed hex (32 / 16 chars), for both log paths and for spans. The Grafana link also percent-encodes the value.
+## Delivery guarantees (measured by Scenario 6, not assumed)
+- **App → Collector:** the SDK keeps a bounded in-memory buffer (2048 spans per process) and retries. A 100 s Collector outage at ~8 requests/s delivered 69% to 97% of spans across runs; what overflows or times out is dropped. The app itself is never affected (every request served, p95 latency unchanged).
+- **Collector → Elasticsearch (direct `elasticsearch` exporter): NOT durable.** When Elasticsearch is unreachable the exporter logs `Exporting failed. Dropping data.` and the batch is lost (5% to 51% of requests had a stored span after a 40 s outage). Its `retry` setting only covers HTTP status errors from a reachable cluster, `retry_on_failure` is rejected for this exporter (checked on 0.116, 0.120, 0.130, 0.140), and `sending_queue` is only an in-flight buffer. An earlier version of this document claimed otherwise; that was based on a check that did not compare against what was sent.
+- **Collector → Logstash → Elasticsearch: durable for logs.** The `otlphttp` exporter uses the standard retry (`retry_on_failure`), and Logstash retries its own output. In the same outage 100% of the 'work order created' log lines arrived through Logstash versus 46% to 54% through the direct exporter.
+- **Implication:** if losing telemetry during a backend outage matters, do not rely on this exporter alone. Options: route through Logstash (or another queue such as Kafka), or test a newer exporter version before relying on it (upgrading also needs the self-metrics config migrated).
+- **Collector → Prometheus** is pull-based; a Collector outage is a gap in the series.

@@ -1,0 +1,8 @@
+# routing: exporter=file signals=metrics,logs,traces default=false
+# A stand-in for "a new monitoring provider": writes everything the Collector receives to a
+# JSON-lines file. Scenario 5 drops this file in, enables it with EXPORT_EXTRA=file, and shows
+# the application needed no change. A real provider (e.g. Datadog, Loki, Tempo) is added the same way.
+exporters:
+  file:
+    path: /queue/new-destination.jsonl
+    rotation: { max_megabytes: 10, max_backups: 1 }

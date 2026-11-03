@@ -57,6 +57,8 @@ services:
       EXPORT_PROMETHEUS: ${EXPORT_PROMETHEUS:-true}
       EXPORT_ELASTICSEARCH: ${EXPORT_ELASTICSEARCH:-true}
       EXPORT_LOGSTASH: ${EXPORT_LOGSTASH:-true}
+      # Comma-separated names of ADDITIONAL exporters.<name>.yaml fragments to enable (Scenario 5).
+      EXPORT_EXTRA: ${EXPORT_EXTRA:-}
     volumes:
       - ./observability/otel-collector:/src:ro
       - otelcol-generated:/generated
@@ -231,7 +233,7 @@ services:
     environment:
       <<: *otel
       OTEL_SERVICE_NAME: portal-celery-worker
-    command: celery -A config worker -l info
+    command: celery -A config worker -l info --concurrency 4   # default is one process per CPU; each exports its own metric series
     depends_on:
       django: { condition: service_healthy }
     healthcheck:

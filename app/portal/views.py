@@ -11,10 +11,11 @@ from django.db import connection, transaction
 from django.http import JsonResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
+import faults
 from . import metrics
 from .models import Asset, Report, WorkOrder
 from .serializers import AssetSerializer, ReportSerializer, WorkOrderSerializer
@@ -140,7 +141,12 @@ class AssetViewSet(viewsets.ModelViewSet):
     queryset = Asset.objects.order_by("id")
     serializer_class = AssetSerializer
 
+    def list(self, request, *args, **kwargs):
+        faults.slow_endpoint()  # no-op unless the slow_endpoint fault is active
+        return super().list(request, *args, **kwargs)
+
     def retrieve(self, request, *args, **kwargs):
+        faults.maybe_fail_http()  # no-op unless the http_500 fault is active
         # Read-through cache: hit/miss is counted so the ratio is visible in metrics.
         key = f"asset:{kwargs['pk']}"
         data = cache.get(key)
@@ -163,6 +169,10 @@ class AssetViewSet(viewsets.ModelViewSet):
 class WorkOrderViewSet(viewsets.ModelViewSet):
     queryset = WorkOrder.objects.select_related("asset").order_by("-id")
     serializer_class = WorkOrderSerializer
+
+    def list(self, request, *args, **kwargs):
+        faults.slow_db()  # no-op unless the slow_db fault is active
+        return super().list(request, *args, **kwargs)
 
     # One atomic unit: order insert + asset status update. Shows up as a single DB transaction in traces.
     @transaction.atomic
@@ -198,3 +208,25 @@ def external_rates(request):
         metrics.external_requests.add(1, {"target": "rates", "status_class": "error"})
         logger.error("external api failed", extra={"error": exc.__class__.__name__})
         return Response({"detail": "upstream unavailable"}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+@api_view(["GET", "POST", "DELETE"])
+@permission_classes([IsAdminUser])
+def fault_view(request):
+    """Demo-only control plane: GET lists active faults, POST {fault, ...params} sets one
+    (or {fault, enabled: false} clears it), DELETE clears all."""
+    if not settings.FAULTS_ENABLED:
+        return Response({"detail": "fault injection is disabled"}, status=status.HTTP_404_NOT_FOUND)
+    if request.method == "DELETE":
+        faults.clear()
+    elif request.method == "POST":
+        name = request.data.get("fault")
+        try:
+            if request.data.get("enabled") is False:
+                faults.clear(name)
+            else:
+                faults.set_fault(name, request.data)
+        except (ValueError, TypeError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        logger.warning("fault configuration changed", extra={"fault": name, "enabled": request.data.get("enabled") is not False})
+    return Response(faults.active())

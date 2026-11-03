@@ -44,6 +44,72 @@
   "panels": [
     {
       "id": 1,
+      "type": "stat",
+      "title": "Active fault injections (demo)",
+      "description": "Demo faults are injected by the scenarios (make scenario N=...). ACTIVE = the app is being deliberately degraded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (fault) (portal_fault_active)",
+          "legendFormat": "{{fault}}",
+          "instant": true
+        }
+      ],
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "off",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "ACTIVE",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "textMode": "value_and_name",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 2,
       "type": "row",
       "title": "Golden signals",
       "collapsed": false,
@@ -51,12 +117,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 3
       },
       "panels": []
     },
     {
-      "id": 2,
+      "id": 3,
       "type": "stat",
       "title": "Request rate",
       "description": "Requests per second, all routes.",
@@ -80,7 +146,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -91,7 +157,7 @@
       "options": {}
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "stat",
       "title": "Error rate (5xx)",
       "description": "Share of requests answered with 5xx. Alert fires above 5%. Link: matching error logs in Kibana.",
@@ -115,7 +181,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -152,7 +218,7 @@
       ]
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "p95 latency",
       "description": "95th percentile server latency. Alert fires above 1s. Link: slowest spans in Kibana.",
@@ -176,7 +242,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -213,7 +279,7 @@
       ]
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "stat",
       "title": "Active requests",
       "description": "Requests currently being served (saturation).",
@@ -237,7 +303,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {},
@@ -246,7 +312,7 @@
       "options": {}
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "row",
       "title": "Traffic and errors",
       "collapsed": false,
@@ -254,12 +320,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 9
       },
       "panels": []
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "timeseries",
       "title": "Request rate by route",
       "description": "Route templates, not raw URLs, so cardinality stays bounded.",
@@ -283,7 +349,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -302,7 +368,7 @@
       }
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "timeseries",
       "title": "Responses by status code",
       "description": "",
@@ -326,7 +392,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -345,7 +411,7 @@
       }
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "row",
       "title": "Latency",
       "collapsed": false,
@@ -353,12 +419,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 18
       },
       "panels": []
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "timeseries",
       "title": "Latency percentiles",
       "description": "",
@@ -402,7 +468,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 19
       },
       "fieldConfig": {
         "defaults": {
@@ -421,7 +487,7 @@
       }
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "timeseries",
       "title": "p95 latency by route",
       "description": "Find the slow endpoint (Scenario 1). Link: slowest spans in Kibana.",
@@ -445,7 +511,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 19
       },
       "fieldConfig": {
         "defaults": {
@@ -471,7 +537,7 @@
       ]
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "row",
       "title": "Dependencies",
       "collapsed": false,
@@ -479,12 +545,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 27
       },
       "panels": []
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "timeseries",
       "title": "DB query duration p95 by operation",
       "description": "Time spent in PostgreSQL per statement type (Scenario 4).",
@@ -508,7 +574,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 25
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -527,7 +593,7 @@
       }
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "timeseries",
       "title": "Cache hit ratio",
       "description": "Redis read-through cache for asset lookups.",
@@ -551,7 +617,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 25
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -572,7 +638,7 @@
       }
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "timeseries",
       "title": "External API calls by outcome",
       "description": "Simulated third-party rates API.",
@@ -596,7 +662,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -615,7 +681,7 @@
       }
     },
     {
-      "id": 16,
+      "id": 17,
       "type": "row",
       "title": "Logs (Elasticsearch)",
       "collapsed": false,
@@ -623,12 +689,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 36
       },
       "panels": []
     },
     {
-      "id": 17,
+      "id": 18,
       "type": "timeseries",
       "title": "Log volume by level",
       "description": "Log records per level (direct Collector -> Elasticsearch path).",
@@ -678,7 +744,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {},
@@ -695,7 +761,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "logs",
       "title": "Recent warnings and errors",
       "description": "Click a line, then its trace.id link to follow the whole request in Kibana.",
@@ -729,7 +795,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {},

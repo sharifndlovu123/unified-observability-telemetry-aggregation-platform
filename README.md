@@ -8,19 +8,46 @@ A hands-on learning project: one instrumented Django app, one OpenTelemetry Coll
 
 OpenTelemetry (OTel) splits observability into three independent parts. Each can change without touching the others.
 
+```mermaid
+flowchart LR
+  subgraph APP["1. APP: produces telemetry"]
+    direction TB
+    web["Django web<br/>portal-django"]
+    worker["Celery worker<br/>portal-celery-worker"]
+    beat["Celery beat<br/>portal-celery-beat"]
+  end
+
+  subgraph COL["2. COLLECTOR: receives, processes, routes"]
+    direction TB
+    rec["OTLP receiver<br/>:4317 gRPC / :4318 HTTP"]
+    proc["Processors<br/>memory_limiter, resource, batch"]
+    rec --> proc
+  end
+
+  subgraph DATA["3. DATA: stores and shows"]
+    direction TB
+    prom[("Prometheus<br/>metrics")]
+    es[("Elasticsearch<br/>logs and traces")]
+    ls["Logstash<br/>second log path"]
+    graf["Grafana<br/>dashboards, alerts"]
+    kib["Kibana<br/>search logs and traces"]
+    dd["Datadog<br/>postponed"]
+  end
+
+  web & worker & beat -- "OTLP: metrics, logs, traces" --> rec
+  proc -- metrics --> prom
+  proc -- "logs, traces" --> es
+  proc -- logs --> ls --> es
+  proc -. "all signals (not built yet)" .-> dd
+  prom -- queried by --> graf
+  es -- queried by --> graf
+  es -- queried by --> kib
+
+  classDef postponed stroke-dasharray: 5 5,color:#777
+  class dd postponed
 ```
-┌──────────────────────┐      ┌───────────────────────┐      ┌─────────────────────────┐
-│ 1. APP               │      │ 2. COLLECTOR          │      │ 3. DATA (backends)      │
-│ produces telemetry   │ OTLP │ receives, processes,  │      │ stores & visualises     │
-│                      │─────▶│ routes                │─────▶│                         │
-│ Django · Celery      │ gRPC │                       │      │ Prometheus  (metrics)   │
-│ + OTel SDK           │      │ otel-collector        │      │ Elasticsearch (logs,    │
-│                      │      │                       │      │   traces) + Kibana      │
-└──────────────────────┘      └───────────────────────┘      │ Datadog (all, optional) │
-                                                             │ Grafana (reads the rest)│
-                                                             └─────────────────────────┘
-   knows ONE address            knows ALL destinations         knows nothing about the app
-```
+
+The app knows **one address** (the Collector). The Collector knows **every destination**. The backends know **nothing about the app**. Adding or removing a backend changes only the middle box.
 
 ### 1. The app: produces telemetry (vendor-neutral)
 
@@ -44,9 +71,18 @@ The app's only telemetry configuration is `OTEL_EXPORTER_OTLP_ENDPOINT` (the Col
 - **Processors** (order matters): `memory_limiter` (first; protects the Collector) → `resource` (stamps `deployment.environment` on everything) → `batch` (last; fewer, bigger writes).
 - **Exporters**: where data goes. Adding or removing a backend is a Collector config change, with **zero app changes**.
 
+```mermaid
+flowchart LR
+  env[".env flags<br/>EXPORT_PROMETHEUS=true<br/>EXPORT_ELASTICSEARCH=true<br/>EXPORT_LOGSTASH=false ..."] --> cfg["otel-config<br/>one-shot render_config.py"]
+  frag["exporters.*.yaml<br/>one file per destination"] --> cfg
+  cfg --> routing["routing.yaml<br/>only the enabled exporters<br/>+ one pipeline per signal"]
+  base["base.yaml<br/>receivers, processors"] --> col["otel-collector"]
+  routing --> col
+```
+
 Files in `observability/otel-collector/`:
 - `base.yaml`: receivers, processors, self-metrics, health check.
-- `exporters.<name>.yaml`: one file per destination (`debug`, `prometheus`; more later).
+- `exporters.<name>.yaml`: one file per destination (`debug`, `prometheus`, `elasticsearch`, `logstash`). Its first line, `# routing: exporter=... signals=... default=...`, declares how it is routed, so a new destination is just a new file.
 - `render_config.py`: run once by the `otel-config` container; reads the `EXPORT_*` flags below and writes the Collector's routing (`exporters:` + one pipeline per signal) containing **only the enabled destinations**.
 
 #### Turning destinations on and off
@@ -63,8 +99,8 @@ make routes               # shows where each signal now goes
 |---|---|---|
 | `EXPORT_DEBUG` | all signals (printed in the Collector log) | on |
 | `EXPORT_PROMETHEUS` | metrics (scrape endpoint `:8889`) | on |
-| `EXPORT_ELASTICSEARCH` | logs + traces, with retry and an on-disk queue | on |
-| `EXPORT_LOGSTASH` | logs via Logstash into their own stream | on |
+| `EXPORT_ELASTICSEARCH` | logs + traces (direct exporter; **drops data if Elasticsearch is unreachable**, see `docs/signal-compat.md`) | on |
+| `EXPORT_LOGSTASH` | logs via Logstash into their own stream (retries; the durable log path) | on |
 | `EXPORT_DATADOG` | all signals | later phase |
 
 A signal with every destination off still gets a valid (no-op) pipeline. To add a destination: add `exporters.<name>.yaml`, one row in `render_config.py`, one flag in `docker-compose.yml`.
@@ -103,10 +139,23 @@ Every log line and span carries the same `trace.id`. In Kibana, open the **Porta
 | Prometheus | ✅ scraping the Collector; 6 alert rules (`observability/prometheus/rules`) at http://127.0.0.1:9090 |
 | Grafana | ✅ http://127.0.0.1:3000 (user `admin`, password = `GF_SECURITY_ADMIN_PASSWORD` in `.env`). Prometheus data source, 3 dashboards, 2 alert rules, all provisioned from `observability/grafana/` |
 | ELK | ✅ Elasticsearch (logs + traces, 7-day retention), Logstash (second log path), Kibana at http://127.0.0.1:5601 (user `elastic`, password = `ELASTIC_PASSWORD` in `.env`). Grafana reads logs from Elasticsearch |
+| Scenarios | ✅ six scripted, self-checking operational scenarios with demo fault injection ([`scenarios/`](scenarios/README.md)) |
 | Datadog | ⏸ postponed (optional; needs an external account and API key). Adding it later is one `exporters.datadog.yaml`, one `DESTINATIONS` row and an `EXPORT_DATADOG` flag, with no app change |
 
 See what the Collector receives: `docker compose logs -f otel-collector`.
 Full span detail: `DEBUG_EXPORTER_VERBOSITY=detailed docker compose up -d otel-collector`.
+
+## Operational scenarios
+
+Six reproducible exercises show observability in practice instead of just dashboards: a slow endpoint, application errors, a Celery failure, a slow database, adding a new destination, and pipeline failures. Each one injects a controlled fault (`POST /api/_faults/`, staff only, `FAULTS_ENABLED=true`, auto-expires after 15 minutes), drives load, then **checks automatically** that the effect is visible in Prometheus, Elasticsearch and the alerts.
+
+```
+make demo-user       # creates demo (load) and ops-admin (staff, fault control)
+make scenario N=1    # one scenario, about 3 to 6 minutes (telemetry needs ~30s to reach the backends)
+make scenarios       # all six
+```
+
+Details and "where to look in the UI" for each are in [`scenarios/README.md`](scenarios/README.md). The Grafana *Application Performance* dashboard shows a red **Active fault injections** banner while a fault is on.
 
 ## Repository layout
 - `app/` – Django demo application (no backend-specific code)

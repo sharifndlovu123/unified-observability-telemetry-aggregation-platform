@@ -1,3 +1,4 @@
+# routing: exporter=debug signals=metrics,logs,traces default=true
 # Prints what the Collector receives. Verbosity: basic | normal | detailed.
 exporters:
   debug:

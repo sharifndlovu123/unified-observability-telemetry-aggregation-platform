@@ -12,11 +12,13 @@ logger = logging.getLogger(__name__)
 
 
 # Task outcome/duration metrics come from portal.celery_signals; spans from the Celery instrumentation.
-@shared_task
-def generate_report(report_id):
+@shared_task(bind=True)
+def generate_report(self, report_id):
+    import faults
     from .models import Asset, Report, WorkOrder
 
     report = Report.objects.get(pk=report_id)
+    faults.maybe_fail_task()  # no-op unless the celery_fail fault is active
     report.status = "running"
     report.save(update_fields=["status"])
     # Degrade gracefully: a failed upstream call should not fail the whole report.
