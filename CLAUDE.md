@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Phases 1-5 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, Prometheus with alert rules, Grafana (provisioned dashboards + alert rules), and the Elastic stack (Elasticsearch, Logstash, Kibana). Datadog is not built yet. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
+Phases 1-5 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, Prometheus with alert rules, Grafana (provisioned dashboards + alert rules), and the Elastic stack (Elasticsearch, Logstash, Kibana). Datadog is deliberately postponed (user decision); do not build it unless asked. `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
 
 ## Commands
 

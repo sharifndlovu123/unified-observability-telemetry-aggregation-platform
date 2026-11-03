@@ -25,7 +25,7 @@ datasources:
       # Turns each log line's trace.id into a link to every log line and span of that request.
       dataLinks:
         - field: trace.id
-          url: 'http://127.0.0.1:5601/app/discover#/?_a=(dataSource:(dataViewId:portal-correlation,type:dataView),query:(language:kuery,query:%27trace.id%20:%20%22${__value.raw}%22%27))'
+          url: 'http://127.0.0.1:5601/app/discover#/?_a=(dataSource:(dataViewId:portal-correlation,type:dataView),query:(language:kuery,query:%27trace.id%20:%20%22${__value.raw:percentencode}%22%27))'
           urlDisplayLabel: Follow trace in Kibana
   - name: Elasticsearch (traces)
     uid: elasticsearch-traces

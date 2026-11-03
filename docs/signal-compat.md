@@ -28,3 +28,6 @@ Where a signal changes shape on its way from the app to a backend. All of these 
 - App → Collector: the SDK buffers in memory and drops when full (bounded, lossy) so the app never blocks.
 - Collector → Elasticsearch: retries with backoff plus an on-disk queue (`file_storage`), so it survives destination outages and Collector restarts. Verified with a ~40s Elasticsearch outage: all telemetry from the outage window arrived afterwards.
 - Collector → Prometheus is pull-based; a Collector outage is a gap in the series.
+
+## Identifier safety
+- `trace.id` / `span.id` end up in links (Grafana → Kibana) and queries. Elasticsearch ingest pipelines (`portal-logs-validate`, `portal-traces-normalise`) remove any value that is not well-formed hex (32 / 16 chars), for both log paths and for spans. The Grafana link also percent-encodes the value.

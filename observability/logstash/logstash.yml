@@ -1,2 +1,3 @@
-http.host: 0.0.0.0
+# The monitoring API is only used by the container's own healthcheck.
+api.http.host: 127.0.0.1
 xpack.monitoring.enabled: false

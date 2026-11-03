@@ -42,6 +42,19 @@ call("PUT", "/_ilm/policy/portal-retention", {"policy": {"phases": {
     "hot": {"actions": {"rollover": {"max_age": "1d", "max_primary_shard_size": "1gb"}}},
     "delete": {"min_age": "7d", "actions": {"delete": {}}}}}})
 
+# trace.id / span.id are interpolated into links (Grafana -> Kibana) and queries, so only
+# well-formed hex IDs are allowed to exist; anything else is removed at ingest.
+def drop_unless_hex(field, length):
+    parts = field.split(".")
+    path = "ctx." + "?.".join(parts)
+    return {"remove": {"field": field, "ignore_missing": True, "ignore_failure": True,
+                       "if": f"{path} != null && !(({path} instanceof String) && {path}.length() == {length} && {path} ==~ /[0-9a-f]+/)"}}
+
+
+ID_CHECKS = [drop_unless_hex("trace.id", 32), drop_unless_hex("span.id", 16)]
+call("PUT", "/_ingest/pipeline/portal-logs-validate", {
+    "description": "Drop malformed trace/span ids from log documents", "processors": ID_CHECKS})
+
 # The Collector's ES exporter writes logs with ECS names (trace.id) but spans in its own
 # schema (TraceId, Resource.service.name, Duration in microseconds). This pipeline copies
 # span fields to the ECS names so ONE query (trace.id:<id>) matches both logs and spans.
@@ -52,6 +65,7 @@ call("PUT", "/_ingest/pipeline/portal-traces-normalise", {
         copy("TraceId", "trace.id"), copy("SpanId", "span.id"), copy("ParentSpanId", "span.parent_id"),
         copy("Name", "span.name"), copy("Resource.service.name", "service.name"),
         copy("Resource.deployment.environment", "service.environment"),
+        *ID_CHECKS,
         {"script": {"lang": "painless", "ignore_failure": True,
                     "source": "if (ctx.Duration != null) { ctx.duration_ms = ctx.Duration / 1000.0; }"}},
     ]})
@@ -70,8 +84,7 @@ MAPPINGS = {"properties": {
 
 for kind in ("logs", "traces"):
     settings = {"index.lifecycle.name": "portal-retention", "number_of_replicas": 0}
-    if kind == "traces":
-        settings["index.default_pipeline"] = "portal-traces-normalise"
+    settings["index.default_pipeline"] = "portal-traces-normalise" if kind == "traces" else "portal-logs-validate"
     call("PUT", f"/_index_template/{kind}-portal", {
         "index_patterns": [f"{kind}-portal-*"],
         "data_stream": {},

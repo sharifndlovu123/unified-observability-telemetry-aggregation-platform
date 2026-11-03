@@ -103,7 +103,7 @@ Every log line and span carries the same `trace.id`. In Kibana, open the **Porta
 | Prometheus | ✅ scraping the Collector; 6 alert rules (`observability/prometheus/rules`) at http://127.0.0.1:9090 |
 | Grafana | ✅ http://127.0.0.1:3000 (user `admin`, password = `GF_SECURITY_ADMIN_PASSWORD` in `.env`). Prometheus data source, 3 dashboards, 2 alert rules, all provisioned from `observability/grafana/` |
 | ELK | ✅ Elasticsearch (logs + traces, 7-day retention), Logstash (second log path), Kibana at http://127.0.0.1:5601 (user `elastic`, password = `ELASTIC_PASSWORD` in `.env`). Grafana reads logs from Elasticsearch |
-| Datadog | ⏳ next phase |
+| Datadog | ⏸ postponed (optional; needs an external account and API key). Adding it later is one `exporters.datadog.yaml`, one `DESTINATIONS` row and an `EXPORT_DATADOG` flag, with no app change |
 
 See what the Collector receives: `docker compose logs -f otel-collector`.
 Full span detail: `DEBUG_EXPORTER_VERBOSITY=detailed docker compose up -d otel-collector`.

@@ -73,6 +73,7 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-dev}
       DEBUG_EXPORTER_VERBOSITY: ${DEBUG_EXPORTER_VERBOSITY:-basic}
       ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD:-}
+      LOGSTASH_INPUT_PASSWORD: ${LOGSTASH_INPUT_PASSWORD:-}
     volumes:
       - ./observability/otel-collector:/etc/otelcol:ro
       - otelcol-generated:/generated:ro
@@ -122,6 +123,7 @@ services:
     environment:
       LS_JAVA_OPTS: -Xms512m -Xmx512m
       ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD}
+      LOGSTASH_INPUT_PASSWORD: ${LOGSTASH_INPUT_PASSWORD:?set LOGSTASH_INPUT_PASSWORD in .env}
     volumes:
       - ./observability/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
       - ./observability/logstash/pipeline:/usr/share/logstash/pipeline:ro
@@ -133,7 +135,7 @@ services:
       timeout: 5s
       retries: 20
       start_period: 60s
-    networks: [telemetry-net, backend-net]
+    networks: [backend-net]   # reachable only from the Collector's backend side, not by app containers
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.15.3
