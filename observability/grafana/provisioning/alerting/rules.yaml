@@ -1,0 +1,56 @@
+# Grafana-managed alert rules, provisioned from this file (mirrors a subset of the
+# Prometheus rules so both alerting paths can be demonstrated). Notification routing
+# (contact points) is intentionally left at Grafana's default for this demo.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: portal
+    folder: Observability Platform
+    interval: 1m
+    rules:
+      - uid: portal-grafana-error-rate
+        title: High 5xx error rate
+        condition: C
+        for: 2m
+        noDataState: OK          # no traffic is not an error; AppMetricsMissing covers outages
+        execErrState: Error
+        labels: { severity: critical }
+        annotations: { summary: "More than 5% of requests are failing with 5xx" }
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'sum(rate(http_server_duration_milliseconds_count{http_status_code=~"5.."}[5m])) / sum(rate(http_server_duration_milliseconds_count[5m]))' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0.05] } }]
+      - uid: portal-grafana-celery-failures
+        title: Celery task failures
+        condition: C
+        for: 2m
+        noDataState: OK          # no traffic is not an error; AppMetricsMissing covers outages
+        execErrState: Error
+        labels: { severity: warning }
+        annotations: { summary: "Celery tasks are failing" }
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'sum(rate(portal_celery_tasks_total{outcome="failure"}[5m]))' }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions: [{ evaluator: { type: gt, params: [0] } }]

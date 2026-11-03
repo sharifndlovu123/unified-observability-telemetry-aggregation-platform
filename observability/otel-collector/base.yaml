@@ -6,6 +6,17 @@ receivers:
       grpc: { endpoint: 0.0.0.0:4317 }
       http: { endpoint: 0.0.0.0:4318 }
 
+  # Host-level infrastructure metrics (CPU, memory, load, network) gathered by the Collector
+  # itself, so even infra data reaches backends through the same gateway. In Docker this
+  # reports the Docker host's view (shared kernel), not per-container usage.
+  hostmetrics:
+    collection_interval: 15s
+    scrapers:
+      cpu: {}
+      memory: {}
+      load: {}
+      network: {}
+
 processors:
   # Must be first in every pipeline: sheds load before the Collector runs out of memory.
   memory_limiter:

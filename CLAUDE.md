@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Phases 1-3 done (+ Prometheus): Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, and Prometheus with alert rules. Grafana/ELK/Datadog are not built yet (logs/traces still go only to the `debug` exporter). `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
+Phases 1-4 done: Django app, Postgres, Redis, Celery worker/beat, full OTel instrumentation (metrics, JSON logs with trace IDs, traces incl. Celery propagation), an `otel-collector` with flag-driven routing, Prometheus with alert rules, and Grafana (provisioned dashboards + alert rules). ELK/Datadog are not built yet (logs/traces still go only to the `debug` exporter). `spec.md` and `TECHNICAL_SPEC.md` are git-ignored local planning docs (may be absent on a fresh clone); they define scope and design decisions.
 
 ## Commands
 
@@ -49,6 +49,10 @@ Grafana dashboards (at minimum: Application Performance, Infrastructure Health, 
 ## Collector routing
 
 Destinations are `EXPORT_<NAME>=true|false` flags (default on). `otel-config` (a one-shot container running `observability/otel-collector/render_config.py`) writes `routing.yaml` with only the enabled exporters' definitions and one pipeline per signal; the Collector loads `base.yaml` + that file. After changing flags or any `exporters.*.yaml`: `make collector-reload`. `make routes` shows the result. New destination = `exporters.<name>.yaml` + a row in `DESTINATIONS` + a flag in `docker-compose.yml`. Prometheus metric names are normalised OTel names (e.g. `portal_celery_tasks_total`, `http_server_duration_milliseconds_*`); latency is in ms.
+
+## Grafana
+
+Fully file-provisioned (`observability/grafana/provisioning` + `dashboards/*.json`, `allowUiUpdates: false`): never click-edit, change the JSON and `docker compose restart grafana`. The dashboard JSON was generated from a script and is now the source of truth; keep new panels on the same style (datasource uid `prometheus`, `$__rate_interval`, `service` variable). Verify new panels by running their expr against Prometheus (`:9090`); a wrong metric name just yields an empty panel. Infra panels use Collector `hostmetrics` (Docker host view, not per-container). Ratio/"failures" stat queries use `or vector(0)` so healthy systems show 0, not "No data".
 
 ## Telemetry gotchas (learned the hard way)
 

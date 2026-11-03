@@ -78,6 +78,28 @@ services:
     # exposed on :13133 (health_check) and watched by Prometheus via the :8888 `up` metric.
     networks: [telemetry-net, backend-net]
 
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?set GF_SECURITY_ADMIN_PASSWORD in .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      # Everything is provisioned from files: datasources, dashboards, alert rules.
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [backend-net]
+
   prometheus:
     image: prom/prometheus:v2.55.1
     command:
@@ -155,3 +177,4 @@ volumes:
   beatdata:
   promdata:
   otelcol-generated:
+  grafanadata:

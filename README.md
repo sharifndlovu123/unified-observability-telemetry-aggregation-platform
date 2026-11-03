@@ -79,6 +79,13 @@ Not every backend gets every signal; each gets what it's good at:
 
 Grafana stores nothing: it queries Prometheus and Elasticsearch. Kibana is Elasticsearch's own UI. Trace IDs in logs let you jump from a log line to its trace.
 
+### Dashboards (Grafana → "Observability Platform" folder)
+- **Application Performance**: request rate, 5xx rate, p50/p95/p99 latency, slowest routes, DB query time, cache hit ratio, external API calls.
+- **Background Processing**: Celery queue depth, success ratio, failures, duration by task.
+- **Infrastructure Health**: host CPU/memory/load/network (Collector `hostmetrics`; this is the Docker *host*, not per-container usage) plus the telemetry pipeline's own health: what the Collector receives, what each exporter sends, export failures.
+
+Dashboards are files (`observability/grafana/dashboards/*.json`) and read-only in the UI; change the JSON, not the screen.
+
 ### Where this build is today
 
 | Part | Status |
@@ -87,14 +94,15 @@ Grafana stores nothing: it queries Prometheus and Elasticsearch. Kibana is Elast
 | App instrumentation (metrics, logs, traces) | ✅ built, verified end-to-end |
 | Collector | ✅ flag-driven routing, self-metrics, health endpoint |
 | Prometheus | ✅ scraping the Collector; 6 alert rules (`observability/prometheus/rules`) at http://127.0.0.1:9090 |
-| Grafana / ELK / Datadog | ⏳ later phases (logs and traces currently go to the debug exporter only) |
+| Grafana | ✅ http://127.0.0.1:3000 (user `admin`, password = `GF_SECURITY_ADMIN_PASSWORD` in `.env`). Prometheus data source, 3 dashboards, 2 alert rules, all provisioned from `observability/grafana/` |
+| ELK / Datadog | ⏳ later phases (logs and traces currently go to the debug exporter only; Grafana's log/trace drill-down arrives with Elasticsearch) |
 
 See what the Collector receives: `docker compose logs -f otel-collector`.
 Full span detail: `DEBUG_EXPORTER_VERBOSITY=detailed docker compose up -d otel-collector`.
 
 ## Repository layout
 - `app/` – Django demo application (no backend-specific code)
-- `observability/` – Collector, Prometheus, Grafana, Elastic, Datadog config (only the Collector so far)
+- `observability/` – Collector, Prometheus and Grafana config (Elastic, Datadog to come)
 - `scenarios/` – load generator and (later) reproducible failure demos
 - `docs/` – architecture, deployment, troubleshooting, limitations
 

@@ -100,3 +100,17 @@ def test_forwarded_header_does_not_evade_ip_throttle(db):
         for i in range(5)
     ]
     assert 429 in codes[3:]
+
+
+def test_blocked_requests_do_not_inflate_budgets(db, settings):
+    from django.core.cache import cache as c_
+
+    settings.LOGIN_FAIL_LIMIT_PER_IP = 2
+    User.objects.create_user("erin", password="pw")
+    c = APIClient()
+    for _ in range(6):
+        _login(c, "erin", "no", "5.5.5.5")  # 2 real failures, 4 rejected
+    import hashlib
+
+    user_key = "loginfail:user:" + hashlib.sha256(b"erin").hexdigest()
+    assert c_.get(user_key) == 2  # only the two real failures counted

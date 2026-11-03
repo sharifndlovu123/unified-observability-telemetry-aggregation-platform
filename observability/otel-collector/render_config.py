@@ -24,11 +24,11 @@ DESTINATIONS = {
     "debug": ("debug", ("metrics", "logs", "traces"), "true"),
     "prometheus": ("prometheus", ("metrics",), "true"),
 }
-# Processor chain per signal (order matters: memory_limiter first, batch last).
-PROCESSORS = {
-    "metrics": ["memory_limiter", "resource", "batch"],
-    "logs": ["memory_limiter", "resource", "batch"],
-    "traces": ["memory_limiter", "resource", "filter/noise", "batch"],
+# Receivers and processor chain per signal (order matters: memory_limiter first, batch last).
+PIPELINES = {
+    "metrics": (["otlp", "hostmetrics"], ["memory_limiter", "resource", "batch"]),
+    "logs": (["otlp"], ["memory_limiter", "resource", "batch"]),
+    "traces": (["otlp"], ["memory_limiter", "resource", "filter/noise", "batch"]),
 }
 
 
@@ -47,11 +47,11 @@ def main():
         start = next(i for i, l in enumerate(body) if l.strip() == "exporters:")
         lines += [l for l in body[start + 1:] if l.strip()]
     lines += ["", "service:", "  pipelines:"]
-    for signal, procs in PROCESSORS.items():
+    for signal, (receivers, procs) in PIPELINES.items():
         targets = [d[0] for d in enabled.values() if signal in d[1]] or ["nop"]
         lines += [
             f"    {signal}:",
-            "      receivers: [otlp]",
+            f"      receivers: [{', '.join(receivers)}]",
             f"      processors: [{', '.join(procs)}]",
             f"      exporters: [{', '.join(targets)}]",
         ]

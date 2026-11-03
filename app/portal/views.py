@@ -86,6 +86,10 @@ def stub_rates(request):
     return JsonResponse({"base": "USD", "rates": {"EUR": 0.92, "ZAR": 18.4}})
 
 
+def _too_many():
+    return Response({"detail": "too many failed attempts"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([LoginIPThrottle])
@@ -100,10 +104,16 @@ def login_view(request):
     ip = LoginIPThrottle().get_ident(request)
     ip_key = "loginfail:ip:" + hashlib.sha256(f"{name}|{ip}".encode()).hexdigest()
     user_key = "loginfail:user:" + name_hash
-    ok_ip = _reserve(ip_key, settings.LOGIN_FAIL_LIMIT_PER_IP, settings.LOGIN_FAIL_WINDOW)
-    ok_user = _reserve(user_key, settings.LOGIN_FAIL_LIMIT_PER_USER, settings.LOGIN_FAIL_WINDOW_USER)
-    if not (ok_ip and ok_user):
-        return Response({"detail": "too many failed attempts"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    # Reserve one bucket at a time and stop at the first rejection; a rejected request
+    # gives its slot back so 429s never inflate any budget (a blocked caller cannot push
+    # the shared per-username counter higher just by retrying).
+    if not _reserve(ip_key, settings.LOGIN_FAIL_LIMIT_PER_IP, settings.LOGIN_FAIL_WINDOW):
+        _refund(ip_key)
+        return _too_many()
+    if not _reserve(user_key, settings.LOGIN_FAIL_LIMIT_PER_USER, settings.LOGIN_FAIL_WINDOW_USER):
+        _refund(user_key)
+        _refund(ip_key)
+        return _too_many()
     user = authenticate(
         request,
         username=request.data.get("username"),
